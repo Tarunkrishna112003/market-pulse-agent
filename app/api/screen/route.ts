@@ -1,0 +1,3 @@
+import { env } from 'cloudflare:workers';
+import { universe,scanStock,dates } from '@/lib/screener.mjs';
+export async function POST(request:Request){try{const key=(env as any).FMP_API_KEY||request.headers.get('x-market-key');if(!key)return Response.json({error:'Connect an FMP market-data key to run a live scan.'},{status:412});const b=await request.json();if(b.action==='universe')return Response.json({stocks:await universe(key),dates:dates()});if(b.action!=='stock'||!b.stock||!/^[-.A-Z0-9]{1,20}$/.test(b.stock.symbol))return Response.json({error:'Invalid request'},{status:400});return Response.json(await scanStock(b.stock,dates(),key));}catch{return Response.json({error:'Market data unavailable. Check key, plan access and rate limits.'},{status:502});}}
