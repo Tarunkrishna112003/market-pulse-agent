@@ -26,6 +26,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify public dashboard
+        run: node --test scripts/public-dashboard.test.mjs
       - name: Keep latest published report and update dashboard assets
         run: |
           mkdir -p public-site

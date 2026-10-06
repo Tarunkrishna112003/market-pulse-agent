@@ -15,10 +15,10 @@ on:
         default: '100'
       min_move:
         description: Minimum average absolute daily movement (%)
-        default: '5'
+        default: '0'
       max_move:
         description: Maximum average movement (%), blank for no maximum
-        default: ''
+        default: '5'
 permissions:
   contents: read
   pages: write
@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: '22'
       - name: Validate screener
-        run: node --test scripts/screener.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs
+        run: node --test scripts/screener.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
       - name: Fresh full-universe scan
         run: node scripts/github-scan.mjs
         env:
@@ -44,8 +44,8 @@ jobs:
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '30' }}
           MIN_CAP_B: ${{ inputs.min_cap_b || '20' }}
           MAX_CAP_B: ${{ inputs.max_cap_b || '100' }}
-          MIN_MOVE: ${{ inputs.min_move || '5' }}
-          MAX_MOVE: ${{ inputs.max_move }}
+          MIN_MOVE: ${{ inputs.min_move || '0' }}
+          MAX_MOVE: ${{ github.event_name == 'schedule' && '5' || inputs.max_move }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
