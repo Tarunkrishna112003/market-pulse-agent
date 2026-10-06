@@ -1,0 +1,62 @@
+name: Scan NASDAQ and publish dashboard
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: Calendar days to fetch (1–365)
+        default: '30'
+      min_cap_b:
+        description: Minimum market cap (USD billions)
+        default: '20'
+      max_cap_b:
+        description: Maximum market cap (USD billions)
+        default: '100'
+      min_move:
+        description: Minimum average absolute daily movement (%)
+        default: '5'
+      max_move:
+        description: Maximum average movement (%), blank for no maximum
+        default: ''
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: github-pages-scan
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate screener
+        run: node --test scripts/screener.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs
+      - name: Fresh full-universe scan
+        run: node scripts/github-scan.mjs
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '30' }}
+          MIN_CAP_B: ${{ inputs.min_cap_b || '20' }}
+          MAX_CAP_B: ${{ inputs.max_cap_b || '100' }}
+          MIN_MOVE: ${{ inputs.min_move || '5' }}
+          MAX_MOVE: ${{ inputs.max_move }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public-site
+  deploy:
+    needs: scan
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish public dashboard
+        id: deployment
+        uses: actions/deploy-pages@v4
