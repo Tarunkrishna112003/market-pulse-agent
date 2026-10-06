@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: '22'
       - name: Validate screener
-        run: node --test scripts/screener.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs
+        run: node --test scripts/screener.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs
       - name: Fresh full-universe scan
         run: node scripts/github-scan.mjs
         env:
