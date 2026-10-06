@@ -1,0 +1,26 @@
+name: Check market feed access
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check live discovery and one historical series
+        run: |
+          node --input-type=module <<'JS'
+          import {publicUniverse,publicStock} from './lib/public-market.mjs';
+          import {dates} from './lib/screener.mjs';
+          const listing=await publicUniverse({all:true});
+          console.log(`Discovered ${listing.length} NASDAQ company listings.`);
+          const stock=listing.find(s=>s.marketCap>=20e9&&s.marketCap<=100e9);
+          if(!stock)throw Error('No eligible company found');
+          const result=await publicStock(stock,dates());
+          console.log(`${result.symbol}: ${result.days.length} sessions from ${result.source}; average absolute movement ${result.average.toFixed(2)}%.`);
+          JS
