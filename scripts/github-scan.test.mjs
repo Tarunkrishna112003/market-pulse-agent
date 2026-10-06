@@ -13,6 +13,6 @@ test('GitHub scanner attempts the whole universe and publishes filtered report a
  assert.equal(result.status,0,result.stderr);
  const data=JSON.parse(await readFile(join(temp,'public-site/data.json'),'utf8'));assert.equal(data.report.total,2);assert.equal(data.stocks.length,2);assert.deepEqual(data.report.top25.map(s=>s.symbol),['MATCH']);assert.equal(data.stocks[0].history.length,2);
  assert.match(await readFile(join(temp,'public-site/all-matching-stocks.csv'),'utf8'),/MATCH/);assert.doesNotMatch(await readFile(join(temp,'public-site/all-matching-stocks.csv'),'utf8'),/OUTSIDE/);
- assert.match(await readFile(join(temp,'public-site/filters.mjs'),'utf8'),/normalizeFilters/);assert.match(await readFile(join(temp,'public-site/index.html'),'utf8'),/Run a fresh scan/);
+ assert.match(await readFile(join(temp,'public-site/filters.mjs'),'utf8'),/normalizeFilters/);assert.match(await readFile(join(temp,'public-site/index.html'),'utf8'),/Apply filters/);
  }finally{await rm(temp,{recursive:true,force:true})}
 });
