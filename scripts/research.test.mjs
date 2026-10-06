@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validateReview,reviewSchema} from '../lib/research.mjs';
+const rows=[{symbol:'A',headlines:[{title:'Company earnings released',url:'https://example.org/earnings'}]},{symbol:'B',headlines:[]}];
+test('research returns only supplied source titles',()=>{const r=validateReview({observations:[{symbol:'A',headlineIndex:0,note:'fabricated claim'},{symbol:'B',headlineIndex:null}]},rows,'test');assert.equal(r.observations[0].note,'AI-selected headline: Company earnings released');assert.equal(r.observations[0].source.url,'https://example.org/earnings');assert.deepEqual(r.symbolsCovered,['A','B'])});
+test('research rejects invented headlines and incomplete coverage',()=>{assert.throws(()=>validateReview({observations:[{symbol:'A',headlineIndex:9},{symbol:'B',headlineIndex:null}]},rows,'test'));assert.throws(()=>validateReview({observations:[{symbol:'A',headlineIndex:0}]},rows,'test'))});
+
+test('constrained model schema permits only supplied source indices',()=>{const schema=reviewSchema(rows);assert.deepEqual(schema.properties.observations.properties.A.enum,[null,0]);assert.deepEqual(schema.properties.observations.properties.B.enum,[null]);assert.equal(validateReview({observations:{A:0,B:null}},rows,'test').symbolsCovered.length,2)});
