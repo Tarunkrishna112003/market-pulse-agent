@@ -1,5 +1,5 @@
 import {mkdir,writeFile,copyFile} from 'node:fs/promises';
-import {attachStockNews} from '../lib/stock-news.mjs';
+import {attachMarketNews} from '../lib/stock-news.mjs';
 import {publicUniverse} from '../lib/public-market.mjs';
 import {provider,scanStock,dates,makeReport} from '../lib/screener.mjs';
 import {normalizeFilters} from '../lib/filters.mjs';
@@ -13,7 +13,7 @@ async function worker(){while(index<listing.length){const s=listing[index++];try
 await Promise.all(Array.from({length:3},worker));
 if(!results.length)throw Error('No valid stock histories returned; preserving previously published results');
 const report=makeReport(results,errors,window,listing.length,filters);
-await attachStockNews(report);
+await attachMarketNews(report);
 report.research={state:'disabled',reason:'Public GitHub scanner publishes calculated market data; local Ollama research remains available in the local app.'};
 const stocks=results.map(({days,...s})=>({...s,history:days.map(d=>[d.date,d.close,d.change])}));
 await mkdir('public-site',{recursive:true});

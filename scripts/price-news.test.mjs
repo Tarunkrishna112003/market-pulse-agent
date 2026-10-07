@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {calculate,dates,makeReport} from '../lib/screener.mjs';
 import {publicUniverse,publicStock} from '../lib/public-market.mjs';
-import {attachStockNews} from '../lib/stock-news.mjs';
+import {attachMarketNews,parseMarketNews} from '../lib/stock-news.mjs';
 import {csv,summaryRows} from '../lib/csv-report.mjs';
 
 test('30-day intraday range stays independent of a short movement window',()=>{
@@ -32,10 +32,19 @@ test('discovery merges exchanges and NYSE history accepts latest quote and tradi
  }finally{globalThis.fetch=original}
 });
 
-test('news uses sourced titles and a failed feed preserves calculated report',async()=>{
+const now=new Date('2026-10-07T20:00:00Z');
+const item=(title,date='Wed, 07 Oct 2026 18:00:00 GMT',url='https://finance.yahoo.com/news/deal')=>`<item><title><![CDATA[${title}]]></title><link>${url}</link><pubDate>${date}</pubDate><source>Reuters</source></item>`;
+test('general Yahoo news selects recent investments and deals independent of stocks',async()=>{
  const original=globalThis.fetch;
- try{globalThis.fetch=async url=>String(url).includes('s=FAIL')?{ok:false}:{ok:true,text:async()=>'<rss><item><title>Company &amp; results</title><link>https://example.com/news</link><pubDate>today</pubDate></item></rss>'};
- const report={newsStocks:[{symbol:'OK'},{symbol:'FAIL'}]};await attachStockNews(report);
- assert.equal(report.newsStocks[0].headlines[0].title,'Company & results');assert.equal(report.newsStocks[1].headlines.length,0);assert.match(report.newsStocks[1].newsStatus,/unavailable/);
+ try{let requested;globalThis.fetch=async url=>{requested=String(url);return {ok:true,text:async()=>'<rss>'+item('Company raises $100 million in funding')+item('Company raises $100 million in funding')+item('Company announces new partnership','Wed, 07 Oct 2026 19:00:00 GMT','https://finance.yahoo.com/news/partner')+item('Market falls on inflation fears')+item('Company acquisition','Wed, 23 Sep 2026 18:00:00 GMT')+item('Company signs deal',undefined,'javascript:alert(1)')+'</rss>'}};
+ const report={stocks:[],qualifying:0};await attachMarketNews(report,{now});
+ assert.equal(requested,'https://finance.yahoo.com/news/rssindex');assert.equal(report.marketNews.items.length,2);assert.equal(report.marketNews.items[0].category,'Deal / partnership');assert.equal(report.marketNews.items[1].source,'Reuters');assert.equal(report.marketNews.state,'available');
+ }finally{globalThis.fetch=original}
+});
+test('Yahoo feed failures and empty feeds leave numeric results intact',async()=>{
+ const original=globalThis.fetch;
+ try{const report={qualifying:7};globalThis.fetch=async()=>({ok:false,status:429});await attachMarketNews(report,{now});assert.equal(report.qualifying,7);assert.equal(report.marketNews.state,'unavailable');assert.deepEqual(report.marketNews.items,[]);
+ globalThis.fetch=async()=>({ok:true,text:async()=>'<rss></rss>'});await attachMarketNews(report,{now});assert.equal(report.marketNews.state,'empty');
+ assert.throws(()=>parseMarketNews('<html>rate limited</html>',now),/invalid news feed/);
  }finally{globalThis.fetch=original}
 });
