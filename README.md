@@ -1,4 +1,4 @@
-# NASDAQ Movement Agent
+# NASDAQ and NYSE Movement Agent
 
 Private dashboard and executable reporting agent. The UI loads live data automatically and saves reports. API-key entry and sample data have been removed.
 
@@ -17,7 +17,7 @@ Open http://127.0.0.1:5173/. Keep both processes running for automatic scans eve
 
 ## Rules
 
-Scan all NASDAQ company listings, excluding non-company securities. Default filters are $20B–$100B market cap in USD, at least 5% average absolute daily movement, and 30 calendar days. Users can change cap and movement ranges and choose 1–365 days. Rank matching stocks by average absolute daily close-to-close return; display up to 25 and export every match. Trading sessions use a baseline close before the calendar window. Source failures are disclosed. Market caps are fetched at scan time; the latest daily change is an end-of-day return rather than an intraday move.
+Scan all NASDAQ and NYSE company listings, excluding non-company securities. Default filters are $20B–$100B market cap in USD, at least 5% average absolute daily movement, and 30 calendar days. Users can change cap and movement ranges and choose 1–365 days. Rank matching stocks by average absolute daily close-to-close return; display up to 25 and export every match. Trading sessions use a baseline close before the calendar window. Source failures are disclosed. Market caps are fetched at scan time; the latest daily change is an end-of-day return rather than an intraday move.
 
 ## Live UI
 
@@ -40,9 +40,9 @@ Prints the ranking and saves outputs/report.json, even if no stocks qualify. Exi
 
 Browser WebMCP exposes read_stock_report when supported. No supported WebMCP browser context was available for runtime validation.
 
-## Full NASDAQ daily agent and local LLM
+## Full NASDAQ and NYSE daily agent and local LLM
 
-The local background service (`scripts/local-agent.mjs`) rediscovers all NASDAQ company listings on each run. There is no fixed ticker list or count. It attempts daily history for every company, including those outside the report's market-cap range, then applies the original $20B–$100B and >=5% rules to the final top 25. Coverage, source failures and missing history are reported rather than assumed complete. Non-company securities such as warrants and preferred shares are excluded. Company discovery and market-cap evaluation are separate from successful price-history coverage.
+The local background service (`scripts/local-agent.mjs`) rediscovers all NASDAQ and NYSE company listings on each run. There is no fixed ticker list or count. It attempts daily history for every company, including those outside the report's market-cap range, then applies the original $20B–$100B and >=5% rules to the final top 25. Coverage, source failures and missing history are reported rather than assumed complete. Non-company securities such as warrants and preferred shares are excluded. Company discovery and market-cap evaluation are separate from successful price-history coverage.
 
 After the numeric scan, the LLM reviews every company in batches of six, using fetched Yahoo Finance RSS headlines and the market data. Qwen3 0.6B runs locally through Ollama. The model selects relevant sourced headlines; output is validated against the supplied source list. The application uses source titles and links verbatim instead of allowing the model to invent price figures or causal narratives. Unknown symbols, nonexistent sources, incomplete batches and invalid JSON fail explicitly. LLM coverage is separate from successful price coverage. Full research is retained in ignored outputs/research.json; the UI shows representative batch summaries and matched-stock notes.
 
@@ -69,12 +69,18 @@ Scan complete — results below appears as soon as price scanning and report/CSV
 
 ## User-selected filters
 
-Choose minimum/maximum market cap in USD billions, minimum average absolute daily movement, optional maximum movement, and 1–365 calendar days. Run sends all values to the authenticated local agent. Client, Worker route, and agent validate them. The full NASDAQ scan is preserved. Only matching stocks appear in the top-25 table; every matching stock is included in the CSV. This replaces the earlier below-threshold top-25 fallback.
+Choose minimum/maximum market cap in USD billions, minimum average absolute daily movement, optional maximum movement, and 1–365 calendar days. Run sends all values to the authenticated local agent. Client, Worker route, and agent validate them. The full NASDAQ and NYSE scan is preserved. Only matching stocks appear in the top-25 table; every matching stock is included in the CSV. This replaces the earlier below-threshold top-25 fallback.
 
 Last submitted filters persist in the agent status and are reused every three hours. Each report stores its own filters. Editing controls does not relabel an old report. Checkpoints include the lookback window and filter values, so interrupted data from a different window is not reused. Movement means average absolute daily close-to-close percentage change, with trading sessions drawn from the calendar-day window. The latest session can lag the current day until the market closes.
 
 ## Public dashboard on GitHub
 
-GitHub Pages serves the separate static dashboard from `github-pages/`. The workflow `.github/workflows/scan-and-publish.yml` freshly discovers and scans every NASDAQ company every three hours, then deploys the report, searchable universe and CSV files. FMP_API_KEY is stored as a GitHub Actions repository secret. No API keys are shipped to browsers. GitHub schedules can be delayed and inactive public repository schedules may be disabled after 60 days.
+GitHub Pages serves the separate static dashboard from `github-pages/`. The workflow `.github/workflows/scan-and-publish.yml` freshly discovers and scans every NASDAQ and NYSE company every three hours, then deploys the report, searchable universe and CSV files. FMP_API_KEY is stored as a GitHub Actions repository secret. No API keys are shipped to browsers. GitHub schedules can be delayed and inactive public repository schedules may be disabled after 60 days.
 
 Visitors can change market-cap and movement filters, and shorten the calendar window within the published history. Filters calculate results from the latest snapshot; they do not initiate a new scan. Repository writers can use the dashboard link to run the GitHub workflow manually with custom filters and a 1–365 day window. Public scheduled runs use the default 30-day, $20B–$100B, 0%–5% average movement conditions. Numeric reports are published without local Ollama research. GitHub-hosted market feeds may impose rate limits; failures and partial coverage are shown. If no valid histories return, the previous deployment is preserved.
+
+## Price range and company news
+
+Both dashboards show current price, 30-day trading low and 30-day trading high. The range always covers 30 calendar days ending on the scan date, independent of movement filters; histories fetch at least this window. Missing daily high/low data is shown as unavailable rather than replaced with closing prices. Yahoo prices use the latest available regular-market quote and timestamp; FMP histories use the latest closing price and date. Prices are scan snapshots, not streaming quotes. CSV exports include price, timestamp, exchange and range columns, replacing the count of large-movement sessions.
+
+Below the results table, company news shows sourced Yahoo RSS headlines for the scan's top 25 matches. News fetching does not require Ollama; empty or failed news feeds are disclosed. Public filter changes may select companies whose news was not included in the published snapshot. NASDAQ and NYSE discovery must both succeed; the scanner does not silently treat a missing exchange as complete. Older local checkpoints are invalidated to obtain the expanded universe and price history.
