@@ -38,7 +38,7 @@ test('general Yahoo news selects recent investments and deals independent of sto
  const original=globalThis.fetch;
  try{let requested;globalThis.fetch=async url=>{requested=String(url);return {ok:true,text:async()=>'<rss>'+item('Company raises $100 million in funding')+item('Company raises $100 million in funding')+item('Company announces new partnership','Wed, 07 Oct 2026 19:00:00 GMT','https://finance.yahoo.com/news/partner')+item('Market falls on inflation fears')+item('Company acquisition','Wed, 23 Sep 2026 18:00:00 GMT')+item('Company signs deal',undefined,'javascript:alert(1)')+'</rss>'}};
  const report={stocks:[],qualifying:0};await attachMarketNews(report,{now});
- assert.equal(requested,'https://finance.yahoo.com/rss/');assert.equal(report.marketNews.items.length,2);assert.equal(report.marketNews.items[0].category,'Deal / partnership');assert.equal(report.marketNews.items[1].source,'Reuters');assert.equal(report.marketNews.state,'available');
+ assert.equal(requested,'https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US');assert.equal(report.marketNews.items.length,2);assert.equal(report.marketNews.items[0].category,'Deal / partnership');assert.equal(report.marketNews.items[1].source,'Reuters');assert.equal(report.marketNews.state,'available');
  }finally{globalThis.fetch=original}
 });
 test('Yahoo feed failures and empty feeds leave numeric results intact',async()=>{
