@@ -15,11 +15,11 @@ if(!results.length)throw Error('No valid stock histories returned; preserving pr
 const report=makeReport(results,errors,window,listing.length,filters);
 await attachMarketNews(report);
 report.research={state:'disabled',reason:'Public GitHub scanner publishes calculated market data; local Ollama research remains available in the local app.'};
-const stocks=results.map(({days,...s})=>({...s,history:days.map(d=>[d.date,d.close,d.change])}));
+const stocks=results.map(({days,...s})=>({...s,history:days.map(d=>[d.date,d.close,d.change,d.low??null,d.high??null])}));
 await mkdir('public-site',{recursive:true});
-for(const file of ['index.html','app.js','style.css'])await copyFile('github-pages/'+file,'public-site/'+file);
+for(const file of ['index.html','app.js','style.css','stock.html','stock.js'])await copyFile('github-pages/'+file,'public-site/'+file);
 await writeFile('public-site/.nojekyll','');
-for(const file of ['filters.mjs','csv-report.mjs'])await copyFile('lib/'+file,'public-site/'+file);
+for(const file of ['filters.mjs','csv-report.mjs','stock-history.mjs'])await copyFile('lib/'+file,'public-site/'+file);
 await writeFile('public-site/data.json',JSON.stringify({report,stocks}));
 for(const [name,items] of [['top-25',report.top25],['all-matching-stocks',report.allMatches],['all-screened-stocks',results]])await writeFile(`public-site/${name}.csv`,csv(summaryRows(items,report)));
 console.log(`Scan complete: ${results.length}/${listing.length} valid histories; ${report.qualifying} matches. Published coverage includes ${errors.length} failures.`);

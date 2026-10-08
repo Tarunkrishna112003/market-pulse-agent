@@ -6,6 +6,7 @@ on:
       - 'github-pages/**'
       - 'lib/filters.mjs'
       - 'lib/csv-report.mjs'
+      - 'lib/stock-history.mjs'
       - '.github/workflows/publish-dashboard.yml'
   workflow_dispatch:
 permissions:
@@ -27,7 +28,7 @@ jobs:
         with:
           node-version: '22'
       - name: Verify public dashboard
-        run: node --test scripts/public-dashboard.test.mjs
+        run: node --test scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs
       - name: Keep latest published report and update dashboard assets
         run: |
           mkdir -p public-site
@@ -35,8 +36,8 @@ jobs:
             curl --fail --retry 3 --silent --show-error "https://tarunkrishna112003.github.io/market-pulse-agent/$file?deploy=${GITHUB_RUN_ID}" --output "public-site/$file"
           done
           node --input-type=module -e "import {readFileSync} from 'node:fs'; const d=JSON.parse(readFileSync('public-site/data.json','utf8')); if(!d.report || !Array.isArray(d.stocks)) throw Error('Invalid published scan');"
-          cp github-pages/index.html github-pages/app.js github-pages/style.css public-site/
-          cp lib/filters.mjs lib/csv-report.mjs public-site/
+          cp github-pages/index.html github-pages/app.js github-pages/style.css github-pages/stock.html github-pages/stock.js public-site/
+          cp lib/filters.mjs lib/csv-report.mjs lib/stock-history.mjs public-site/
           touch public-site/.nojekyll
           node --check public-site/app.js
       - uses: actions/configure-pages@v5

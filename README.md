@@ -92,3 +92,7 @@ Below the results table, Investments & deals shows general Yahoo Finance news ab
 This replaces the former fixed `17 */3 * * *` scan schedule. The trigger is still invoked by GitHub scheduling, which may delay or drop checks; it improves catch-up opportunities but cannot guarantee exact three-hour timing. Scans use the public defaults (30 days, $20B–$100B cap, 0%–5% movement). Successful scan deployment completion is the interval baseline.
 
 Validation: `node --test scripts/scan-trigger.test.mjs`.
+
+## Stock history pages
+
+Click a company/ticker in the first table column to open its separate daily-history page. The URL carries the applied calendar-day lookback. Each row shows Date, Low, High, Close and Daily change; weekends and holidays have no rows. The selected window determines both row count and highlighted low/high extremes. Public snapshots store daily histories as `[date, close, change, low, high]`; older three-field snapshots remain readable and display unavailable ranges as a dash. Local reports retain daily low/high fields too, and old local checkpoints are invalidated. Public history is limited to the published scan's lookback; users must run a longer scan to publish more history. Returning from the public history page preserves filter values.
