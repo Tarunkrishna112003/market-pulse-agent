@@ -18,9 +18,17 @@ jobs:
           import {publicUniverse,publicStock} from './lib/public-market.mjs';
           import {dates} from './lib/screener.mjs';
           const listing=await publicUniverse({all:true});
-          console.log(`Discovered ${listing.length} NASDAQ company listings.`);
+          console.log(`Discovered ${listing.length} NASDAQ and NYSE company listings.`);
           const stock=listing.find(s=>s.marketCap>=20e9&&s.marketCap<=100e9);
           if(!stock)throw Error('No eligible company found');
           const result=await publicStock(stock,dates());
           console.log(`${result.symbol}: ${result.days.length} sessions from ${result.source}; average absolute movement ${result.average.toFixed(2)}%.`);
+          JS
+      - name: Check general Yahoo investment and deal news
+        run: |
+          node --input-type=module <<'JS'
+          import {attachMarketNews} from './lib/stock-news.mjs';
+          const report=await attachMarketNews({});
+          console.log(JSON.stringify(report.marketNews));
+          if(report.marketNews.state==='unavailable')throw Error('No Yahoo RSS source could be retrieved');
           JS

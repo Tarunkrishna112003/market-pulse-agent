@@ -7,6 +7,8 @@ on:
       - 'lib/filters.mjs'
       - 'lib/csv-report.mjs'
       - 'lib/stock-history.mjs'
+      - 'lib/stock-news.mjs'
+      - 'scripts/refresh-news.mjs'
       - '.github/workflows/publish-dashboard.yml'
   workflow_dispatch:
 permissions:
@@ -28,7 +30,7 @@ jobs:
         with:
           node-version: '22'
       - name: Verify public dashboard
-        run: node --test scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs
+        run: node --test scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
       - name: Keep latest published report and update dashboard assets
         run: |
           mkdir -p public-site
@@ -40,6 +42,8 @@ jobs:
           cp lib/filters.mjs lib/csv-report.mjs lib/stock-history.mjs public-site/
           touch public-site/.nojekyll
           node --check public-site/app.js
+      - name: Refresh general Yahoo news while preserving stock report
+        run: node scripts/refresh-news.mjs public-site/data.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

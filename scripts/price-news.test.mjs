@@ -38,7 +38,7 @@ test('general Yahoo news selects recent investments and deals independent of sto
  const original=globalThis.fetch;
  try{let requested;globalThis.fetch=async url=>{requested=String(url);return {ok:true,text:async()=>'<rss>'+item('Company raises $100 million in funding')+item('Company raises $100 million in funding')+item('Company announces new partnership','Wed, 07 Oct 2026 19:00:00 GMT','https://finance.yahoo.com/news/partner')+item('Market falls on inflation fears')+item('Company acquisition','Wed, 23 Sep 2026 18:00:00 GMT')+item('Company signs deal',undefined,'javascript:alert(1)')+'</rss>'}};
  const report={stocks:[],qualifying:0};await attachMarketNews(report,{now});
- assert.equal(requested,'https://finance.yahoo.com/news/rssindex');assert.equal(report.marketNews.items.length,2);assert.equal(report.marketNews.items[0].category,'Deal / partnership');assert.equal(report.marketNews.items[1].source,'Reuters');assert.equal(report.marketNews.state,'available');
+ assert.equal(requested,'https://finance.yahoo.com/rss/');assert.equal(report.marketNews.items.length,2);assert.equal(report.marketNews.items[0].category,'Deal / partnership');assert.equal(report.marketNews.items[1].source,'Reuters');assert.equal(report.marketNews.state,'available');
  }finally{globalThis.fetch=original}
 });
 test('Yahoo feed failures and empty feeds leave numeric results intact',async()=>{
@@ -46,5 +46,11 @@ test('Yahoo feed failures and empty feeds leave numeric results intact',async()=
  try{const report={qualifying:7};globalThis.fetch=async()=>({ok:false,status:429});await attachMarketNews(report,{now});assert.equal(report.qualifying,7);assert.equal(report.marketNews.state,'unavailable');assert.deepEqual(report.marketNews.items,[]);
  globalThis.fetch=async()=>({ok:true,text:async()=>'<rss></rss>'});await attachMarketNews(report,{now});assert.equal(report.marketNews.state,'empty');
  assert.throws(()=>parseMarketNews('<html>rate limited</html>',now),/invalid news feed/);
+ }finally{globalThis.fetch=original}
+});
+
+test('missing Yahoo Finance RSS falls back to Yahoo general top stories',async()=>{
+ const original=globalThis.fetch;const calls=[];try{globalThis.fetch=async url=>{calls.push(String(url));return calls.length===1?{ok:false,status:404}:{ok:true,text:async()=>'<rss>'+item('Company signs new partnership')+'</rss>'}};
+ const report={};await attachMarketNews(report,{now});assert.equal(report.marketNews.state,'available');assert.equal(report.marketNews.source,'Yahoo News');assert.equal(calls[1],'https://news.yahoo.com/rss/topstories');assert.equal(report.marketNews.errors[0].error,'Yahoo news HTTP 404');
  }finally{globalThis.fetch=original}
 });
