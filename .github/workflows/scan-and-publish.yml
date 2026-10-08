@@ -1,7 +1,5 @@
 name: Scan NASDAQ and NYSE and publish dashboard
 on:
-  schedule:
-    - cron: '17 */3 * * *'
   workflow_dispatch:
     inputs:
       lookback_days:
