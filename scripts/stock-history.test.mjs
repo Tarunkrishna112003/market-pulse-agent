@@ -30,6 +30,6 @@ test('public history page renders selected sessions and keeps back-link filters'
  globalThis.location={search:'?symbol=TEST&days=2&report=old&minCap=20&maxCap=100&minMove=0&maxMove=5'};
  globalThis.fetch=async()=>({ok:true,json:async()=>({report:{...report,id:'new',createdAt:'2026-10-07T22:00:00Z'},stocks:[{...stock,symbol:'TEST',name:'Test Company'}]})});
  await import(pathToFileURL(join(dir,'stock.mjs')).href);
- const rows=nodes.get('historyRows').children;assert.equal(rows.length,2);assert.equal(rows[0].children[0].textContent,'2026-10-06');assert.equal(rows[0].children[1].children[0].textContent,'$130.00');assert.equal(rows[1].children[2].children[0].textContent,'$160.00');assert.match(nodes.get('back').href,/days=2/);assert.doesNotMatch(nodes.get('back').href,/symbol=/);assert.match(nodes.get('status').textContent,/snapshot has updated/);
+ const rows=nodes.get('historyRows').children;assert.equal(rows.length,2);assert.equal(rows[0].children[0].textContent,'+7.00%');assert.equal(rows[0].children[0].className,'positive');assert.equal(rows[0].children[1].textContent,'2026-10-06');assert.equal(rows[0].children[2].children[0].textContent,'$130.00');assert.equal(rows[1].children[3].children[0].textContent,'$160.00');assert.match(nodes.get('back').href,/days=2/);assert.doesNotMatch(nodes.get('back').href,/symbol=/);assert.match(nodes.get('status').textContent,/snapshot has updated/);
  }finally{globalThis.document=original.document;globalThis.location=original.location;globalThis.fetch=original.fetch;await rm(dir,{recursive:true,force:true})}
 });
