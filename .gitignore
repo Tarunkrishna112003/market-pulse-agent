@@ -47,3 +47,7 @@ next-env.d.ts
 /work/
 
 /public-site/
+
+/prediction-models/
+/__pycache__/
+/scripts/__pycache__/

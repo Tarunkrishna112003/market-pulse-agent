@@ -3,3 +3,5 @@
 .prediction-button{display:inline-block;padding:12px 18px;border-radius:8px;background:#304e3b;color:#fff;text-decoration:none;margin:8px 0}select{padding:12px;border:1px solid #c6cfbf;border-radius:8px;font:inherit;margin:10px 0 10px 12px}.prediction-card{padding:18px 0;border-bottom:1px solid #e3e8df}.prediction-card:last-child{border-bottom:0}
 
 .table td.positive a,.table td.negative a{color:inherit}
+
+.quality-filter{display:inline-flex;align-items:center;gap:8px;margin-left:18px}.quality-filter input{width:auto;margin:0}
