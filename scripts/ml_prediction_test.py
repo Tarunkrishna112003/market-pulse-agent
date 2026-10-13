@@ -48,8 +48,27 @@ class ForecastDataTests(unittest.TestCase):
         self.assertEqual(metric['features'],'prices_and_news')
         self.assertLess(metric['meanAbsoluteError'],metric['naiveMeanAbsoluteError'])
         self.assertGreater(predictions['TEST']['estimatedPercent'],0)
-        self.assertTrue(any(r['model']=='neural_network' for r in metric['candidates']))
+        for name in ['neural_network','random_forest','lstm','mathematical_formula','rf_lstm_math_ensemble']:
+            self.assertTrue(any(r['model']==name and 'cvMAE' in r for r in metric['candidates']),name)
         self.assertEqual(len({r['targetDate'] for r in rows if r['date']>=metric['testStart']}),metric['testTradingDates'])
+    def test_lstm_uses_ordered_sequence_and_artifact_roundtrip(self):
+        import numpy as np
+        import joblib
+        import tempfile
+        from forecast_models import LSTMRegressor,MathematicalForecast,SEQUENCE_START
+        rng=np.random.default_rng(42);x=rng.normal(size=(256,len(ml.FEATURES)))
+        y=0.01*(x[:,SEQUENCE_START+4]-x[:,SEQUENCE_START])
+        model=LSTMRegressor(epochs=25).fit(x,y)
+        self.assertLess(np.mean(np.abs(model.predict(x)-y)),np.mean(np.abs(y)))
+        swapped=x.copy();swapped[:,SEQUENCE_START:SEQUENCE_START+5]=x[:,SEQUENCE_START:SEQUENCE_START+5][:,::-1]
+        self.assertFalse(np.allclose(model.predict(x),model.predict(swapped)))
+        with tempfile.TemporaryDirectory() as folder:
+            path=pathlib.Path(folder)/'model.joblib';joblib.dump(model,path)
+            np.testing.assert_allclose(model.predict(x),joblib.load(path).predict(x))
+        formula=MathematicalForecast().fit(x,y);equation=formula.equation(ml.FEATURES)
+        calculated=equation['intercept']+sum(x[:,i]*equation['coefficients'][name] for i,name in enumerate(ml.FEATURES))
+        np.testing.assert_allclose(calculated,formula.predict(x),atol=1e-10)
+
     def test_insufficient_data_rejected(self):
         with self.assertRaises(ValueError):ml.time_partitions([])
 if __name__=='__main__':unittest.main()

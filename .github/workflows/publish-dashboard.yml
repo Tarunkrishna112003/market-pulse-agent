@@ -11,6 +11,7 @@ on:
       - 'lib/prediction-news.mjs'
       - 'lib/supervised-data.mjs'
       - 'scripts/ml-prediction.py'
+      - 'scripts/forecast_models.py'
       - 'scripts/ml_prediction_test.py'
       - 'lib/trading-calendar.mjs'
       - 'scripts/prediction-agent.mjs'
@@ -53,7 +54,7 @@ jobs:
           node --check public-site/app.js
       - name: Refresh general Yahoo news while preserving stock report
         run: node scripts/refresh-news.mjs public-site/data.json
-      - name: Generate initial experimental predictions from the current scan
+      - name: Train and compare next-session prediction models
         uses: ./.github/actions/prediction-agent
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -10,8 +10,8 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
-MODEL_VERSION = 'supervised-next-session-v3'
-FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen','news_tone','news_tone_7d','news_present']
+MODEL_VERSION = 'rf-lstm-math-next-session-v4'
+FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen',*[f'return_lag_{i}' for i in range(5,0,-1)],'news_tone','news_tone_7d','news_present']
 
 def feature_vector(company, anchor_date, anchor_price, minute, lookback, market):
     start = (datetime.fromisoformat(anchor_date)-timedelta(days=lookback)).date().isoformat()
@@ -33,7 +33,7 @@ def feature_vector(company, anchor_date, anchor_price, minute, lookback, market)
     # Prior complete UTC dates only, avoiding same-day headline look-ahead.
     news = [d for d in company.get('newsTimeline',[]) if start <= d['date'] < anchor_date]
     week = [d for d in news if d['date'] >= (datetime.fromisoformat(anchor_date)-timedelta(days=7)).date().isoformat()]
-    return [returns[-1],statistics.mean(returns),vol,math.log(prior[-1]['close']/prior[0]['close']),math.sqrt(sum(min(r,0)**2 for r in returns)/len(returns)),math.log(high/low) if low>0 else 0,(anchor_price-low)/max(high-low,1e-8),(volumes[-1]/max(statistics.mean(volumes),1)) if volumes else 0,math.log(anchor_price/prior[-1]['close']),min(1,max(0,960-minute)/390),market_return,market_momentum,int(minute<570),news[-1]['tone'] if news else 0,statistics.mean([d['tone'] for d in week]) if week else 0,int(bool(news))]
+    return [returns[-1],statistics.mean(returns),vol,math.log(prior[-1]['close']/prior[0]['close']),math.sqrt(sum(min(r,0)**2 for r in returns)/len(returns)),math.log(high/low) if low>0 else 0,(anchor_price-low)/max(high-low,1e-8),(volumes[-1]/max(statistics.mean(volumes),1)) if volumes else 0,math.log(anchor_price/prior[-1]['close']),min(1,max(0,960-minute)/390),market_return,market_momentum,int(minute<570),*returns[-5:],news[-1]['tone'] if news else 0,statistics.mean([d['tone'] for d in week]) if week else 0,int(bool(news))]
 
 def build_rows(company,lookback,market,now):
     daily = {d['date']:d for d in company['daily']}
@@ -87,7 +87,8 @@ def fit_window(rows,current,lookback):
     import os
     import joblib
     from sklearn.base import clone
-    from sklearn.ensemble import ExtraTreesRegressor,HistGradientBoostingRegressor
+    from sklearn.ensemble import ExtraTreesRegressor,HistGradientBoostingRegressor,RandomForestRegressor,VotingRegressor
+    from forecast_models import LSTMRegressor,MathematicalForecast
     from sklearn.linear_model import Ridge
     from sklearn.neural_network import MLPRegressor
     from sklearn.pipeline import make_pipeline
@@ -96,6 +97,11 @@ def fit_window(rows,current,lookback):
     warnings.filterwarnings('ignore', category=ConvergenceWarning)
     selection,calibration,test,dates=time_partitions(rows)
     candidates={'ridge':make_pipeline(RobustScaler(),Ridge(alpha=100)), 'extra_trees':ExtraTreesRegressor(n_estimators=100,max_depth=7,min_samples_leaf=30,n_jobs=2,random_state=42), 'boosted_trees':HistGradientBoostingRegressor(loss='absolute_error',max_iter=100,max_leaf_nodes=15,min_samples_leaf=30,l2_regularization=10,early_stopping=False,random_state=42), 'neural_network':make_pipeline(RobustScaler(),MLPRegressor(hidden_layer_sizes=(32,16),alpha=10,max_iter=200,early_stopping=False,random_state=42))}
+    candidates['random_forest']=RandomForestRegressor(n_estimators=150,max_depth=8,min_samples_leaf=20,max_features=0.8,n_jobs=2,random_state=42)
+    candidates['lstm']=LSTMRegressor()
+    candidates['mathematical_formula']=MathematicalForecast(alpha=100)
+    # Equal weights are fixed before validation; compare the combination against each component.
+    candidates['rf_lstm_math_ensemble']=VotingRegressor([(name,candidates[name]) for name in ['random_forest','lstm','mathematical_formula']],weights=[1,1,1])
     select_dates=sorted({r['date'] for r in selection})
     blocks=[select_dates[max(0,len(select_dates)-24+i*8):len(select_dates)-16+i*8] for i in range(3)]
     news_eligible=sum(r['x'][-1] for r in selection)>=100 and len({r['date'] for r in selection if r['x'][-1]})>=10
@@ -131,6 +137,10 @@ def fit_window(rows,current,lookback):
     metric={'model':best['model'],'features':variant,'trainingRows':len(rows),'testSamples':len(test),'testTradingDates':len({r['targetDate'] for r in test}),'testStart':min(r['date'] for r in test),'testEnd':max(r['targetDate'] for r in test),'meanAbsoluteError':mae,'naiveMeanAbsoluteError':baseline,'directionAccuracy':direction,'intervalCoverage':coverage,'validationPassed':passed,'newsTrainingAvailable':news_eligible,'candidates':scores,'calibrationSamples':len(calibration)}
     allx,ally=arrays(rows,variant);final=clone(model).fit(allx,ally);forecasts={}
     os.makedirs('prediction-models',exist_ok=True)
+    metric['algorithm']='Choose the lowest chronological validation MAE among individual models and the RF/LSTM/math ensemble; evaluate once on untouched final sessions.'
+    metric['ensembleWeights']={'random_forest':1/3,'lstm':1/3,'mathematical_formula':1/3}
+    equation_model=final if best['model']=='mathematical_formula' else final.named_estimators_['mathematical_formula'] if best['model']=='rf_lstm_math_ensemble' else None
+    if equation_model is not None:metric['mathematicalEquation']=equation_model.equation(FEATURES if variant=='prices_and_news' else FEATURES[:-3])
     joblib.dump({'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],'calibrationResidualQuantiles':[low,high],'metrics':metric,'modelVersion':MODEL_VERSION},f'prediction-models/{lookback}-day-model.joblib')
     for symbol,record in current.items():
         vector=record['x'] if variant=='prices_and_news' else record['x'][:-3]
@@ -150,7 +160,7 @@ def main():
     for window in [10,20,30]:
         records=[];current={}
         for company in dataset['companies']:
-            records.extend(build_rows(company,window,dataset['market'],now))
+            if not company.get('inferenceOnly'):records.extend(build_rows(company,window,dataset['market'],now))
             context=company['forecastContext']
             if context['state']!='ready':lookup[company['symbol']]['forecasts'].append({'state':'stale','lookback':window,'reason':context['reason'],'targetDate':context['targetDate']});continue
             clock=datetime.fromisoformat(context['quoteAsOf'].replace('Z','+00:00')).astimezone(NY)
@@ -164,7 +174,7 @@ def main():
         except Exception as error:
             metrics.append({'lookback':window,'state':'unavailable','error':str(error)[:300]})
             for symbol in current:lookup[symbol]['forecasts'].append({'state':'no-signal','lookback':window,'reason':str(error)[:300]})
-    result={'modelVersion':MODEL_VERSION,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Historical tests use the current top-25 cohort, not point-in-time screener membership.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
+    result={'modelVersion':MODEL_VERSION,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Historical tests use the current top-25 cohort, not point-in-time screener membership. Additional tickers in the scan market-cap band use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
     json.dump(result,open(sys.argv[3],'w',encoding='utf-8'),allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 
