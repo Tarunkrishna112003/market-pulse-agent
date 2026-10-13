@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: '22'
       - name: Validate screener
-        run: node --test scripts/screener.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
+        run: node --test scripts/prediction.test.mjs scripts/screener.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
       - name: Fresh full-universe scan
         run: node scripts/github-scan.mjs
         env:
@@ -44,6 +44,8 @@ jobs:
           MAX_CAP_B: ${{ inputs.max_cap_b || '100' }}
           MIN_MOVE: ${{ inputs.min_move || '0' }}
           MAX_MOVE: ${{ github.event_name == 'schedule' && '5' || inputs.max_move }}
+      - name: Analyse top 25 prices and company news
+        uses: ./.github/actions/prediction-agent
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
