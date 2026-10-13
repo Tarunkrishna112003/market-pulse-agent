@@ -11,7 +11,7 @@ try:
         import torch
         from transformers import pipeline
         torch.set_num_threads(2)
-        classifier = pipeline('text-classification', model=MODEL, device=-1, model_kwargs={'use_safetensors': True}, trust_remote_code=False)
+        classifier = pipeline('text-classification', model=MODEL, device=-1, revision='ae0eab9ad336d7d548e0efe394b07c04bcaf6e91', model_kwargs={'use_safetensors': True}, trust_remote_code=False)
         labels = {value.lower() for value in classifier.model.config.id2label.values()}
         if labels != {'positive', 'negative', 'neutral'}:
             raise ValueError('Model has unexpected sentiment labels')
