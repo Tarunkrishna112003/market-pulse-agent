@@ -10,12 +10,14 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
-MODEL_VERSION = 'rf-lstm-math-next-session-v4'
-FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen',*[f'return_lag_{i}' for i in range(5,0,-1)],'news_tone','news_tone_7d','news_present']
+MODEL_VERSION = 'adaptive-rf-lstm-math-v5'
+FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen','calendar_days',*[f'return_lag_{i}' for i in range(5,0,-1)],'news_tone','news_tone_7d','news_present']
 
 def feature_vector(company, anchor_date, anchor_price, minute, lookback, market):
     start = (datetime.fromisoformat(anchor_date)-timedelta(days=lookback)).date().isoformat()
     observable = [d for d in company['daily'] if d['date'] < anchor_date]
+    if not observable or observable[0]['date'] > start:
+        return None
     prior = [d for d in observable if d['date'] >= start]
     if len(prior) < 5:
         return None
@@ -33,7 +35,7 @@ def feature_vector(company, anchor_date, anchor_price, minute, lookback, market)
     # Prior complete UTC dates only, avoiding same-day headline look-ahead.
     news = [d for d in company.get('newsTimeline',[]) if start <= d['date'] < anchor_date]
     week = [d for d in news if d['date'] >= (datetime.fromisoformat(anchor_date)-timedelta(days=7)).date().isoformat()]
-    return [returns[-1],statistics.mean(returns),vol,math.log(prior[-1]['close']/prior[0]['close']),math.sqrt(sum(min(r,0)**2 for r in returns)/len(returns)),math.log(high/low) if low>0 else 0,(anchor_price-low)/max(high-low,1e-8),(volumes[-1]/max(statistics.mean(volumes),1)) if volumes else 0,math.log(anchor_price/prior[-1]['close']),min(1,max(0,960-minute)/390),market_return,market_momentum,int(minute<570),*returns[-5:],news[-1]['tone'] if news else 0,statistics.mean([d['tone'] for d in week]) if week else 0,int(bool(news))]
+    return [returns[-1],statistics.mean(returns),vol,math.log(prior[-1]['close']/prior[0]['close']),math.sqrt(sum(min(r,0)**2 for r in returns)/len(returns)),math.log(high/low) if low>0 else 0,(anchor_price-low)/max(high-low,1e-8),(volumes[-1]/max(statistics.mean(volumes),1)) if volumes else 0,math.log(anchor_price/prior[-1]['close']),min(1,max(0,960-minute)/390),market_return,market_momentum,int(minute<570),lookback,*returns[-5:],news[-1]['tone'] if news else 0,statistics.mean([d['tone'] for d in week]) if week else 0,int(bool(news))]
 
 def build_rows(company,lookback,market,now):
     daily = {d['date']:d for d in company['daily']}
@@ -148,8 +150,8 @@ def fit_window(rows,current,lookback):
         if variant=='prices_and_news':neutral[-3]=0;neutral[-2]=0
         no_news=float(final.predict(np.array([neutral]))[0]);base=record['basePrice'];percent=float(np.expm1(value)*100);close=base*math.exp(value)
         if not all(math.isfinite(v) for v in [value,percent,close]) or abs(value)>1:
-            forecasts[symbol]={'state':'no-signal','lookback':lookback,'reason':'Model output outside supported range'};continue
-        forecasts[symbol]={'state':'estimated','forecastModel':'supervised','lookback':lookback,'sessions':record['sessions'],'baseDate':record['baseDate'],'baseClose':base,'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'estimatedDollar':close-base,'projectedClose':close,'remainingPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
+            forecasts[symbol]={'state':'no-signal','lookback':record.get('lookback',lookback),'reason':'Model output outside supported range'};continue
+        forecasts[symbol]={'state':'estimated','forecastModel':'supervised','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'baseClose':base,'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'estimatedDollar':close-base,'projectedClose':close,'remainingPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
     return forecasts,metric
 
 def main():
@@ -157,24 +159,39 @@ def main():
     now=datetime.fromisoformat(dataset['generatedAt'].replace('Z','+00:00'))
     rows_out=[{'symbol':c['symbol'],'name':c['name'],'headlines':next((n['headlines'] for n in news['companies'] if n['symbol']==c['symbol']),[]),'forecasts':[],'newsState':next((n['state'] for n in news['companies'] if n['symbol']==c['symbol']),'unavailable')} for c in dataset['companies']]
     lookup={r['symbol']:r for r in rows_out};metrics=[]
-    for window in [10,20,30]:
-        records=[];current={}
-        for company in dataset['companies']:
-            if not company.get('inferenceOnly'):records.extend(build_rows(company,window,dataset['market'],now))
-            context=company['forecastContext']
-            if context['state']!='ready':lookup[company['symbol']]['forecasts'].append({'state':'stale','lookback':window,'reason':context['reason'],'targetDate':context['targetDate']});continue
-            clock=datetime.fromisoformat(context['quoteAsOf'].replace('Z','+00:00')).astimezone(NY)
+    maximum=max(1,min(365,int(dataset.get('availableLookback',30))))
+    windows=list(range(1,maximum+1))
+    # Train one conditional model, avoiding hundreds of separate costly LSTM fits.
+    # Window length is an explicit feature. Rotate historical dates across windows.
+    training_windows=[7,10,14,20,30,60,90,180,365]
+    records=[];current={}
+    for company in dataset['companies']:
+        if not company.get('inferenceOnly'):
+            for index,window in enumerate(training_windows):
+                candidates=build_rows(company,window,dataset['market'],now)
+                records.extend(r for r in candidates if datetime.fromisoformat(r['date']).toordinal()%len(training_windows)==index)
+        context=company['forecastContext']
+        for window in windows:
+            if context['state']!='ready':
+                lookup[company['symbol']]['forecasts'].append({'state':'stale','lookback':window,'reason':context['reason'],'targetDate':context['targetDate']});continue
             inference_date=context['inferenceDate'];inference_minute=context['inferenceMinute']
             vector=feature_vector(company,inference_date,context['basePrice'],inference_minute,window,dataset['market'])
-            if vector is None:lookup[company['symbol']]['forecasts'].append({'state':'insufficient-history','lookback':window,'reason':'Insufficient training/inference history'});continue
-            current[company['symbol']]={**context,'x':vector,'generatedAt':dataset['generatedAt'],'sessions':len([d for d in company['daily'] if d['date']<inference_date and d['date']>=(datetime.fromisoformat(inference_date)-timedelta(days=window)).date().isoformat()]),'newsCount':len(lookup[company['symbol']]['headlines']),'newsFeatureCutoff':'prior completed UTC day'}
-        try:
-            forecasts,metric=fit_window(records,current,window);metrics.append({'lookback':window,**metric})
-            for symbol,result in forecasts.items():lookup[symbol]['forecasts'].append(result)
-        except Exception as error:
-            metrics.append({'lookback':window,'state':'unavailable','error':str(error)[:300]})
-            for symbol in current:lookup[symbol]['forecasts'].append({'state':'no-signal','lookback':window,'reason':str(error)[:300]})
-    result={'modelVersion':MODEL_VERSION,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Historical tests use the current top-25 cohort, not point-in-time screener membership. Additional tickers in the scan market-cap band use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
+            if vector is None:
+                lookup[company['symbol']]['forecasts'].append({'state':'insufficient-history','lookback':window,'reason':'The selected period contains fewer than five observable daily returns'});continue
+            key=company['symbol']+':'+str(window)
+            current[key]={**context,'symbol':company['symbol'],'lookback':window,'x':vector,'generatedAt':dataset['generatedAt'],'sessions':len([d for d in company['daily'] if d['date']<inference_date and d['date']>=(datetime.fromisoformat(inference_date)-timedelta(days=window)).date().isoformat()]),'newsCount':len(lookup[company['symbol']]['headlines']),'newsFeatureCutoff':'prior completed UTC day'}
+    try:
+        forecasts,metric=fit_window(records,current,'adaptive')
+        metrics.append({'lookback':0,'adaptive':True,**metric})
+        for key,result in forecasts.items():
+            # Keep one copy of the diagnostics, rather than duplicating it per day/ticker.
+            result.pop('modelQuality',None)
+            result['modelKey']='adaptive'
+            lookup[current[key]['symbol']]['forecasts'].append(result)
+    except Exception as error:
+        metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':str(error)[:300]})
+        for key,record in current.items():lookup[record['symbol']]['forecasts'].append({'state':'no-signal','lookback':record['lookback'],'reason':str(error)[:300]})
+    result={'modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. Additional tickers in the scan market-cap band use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
     json.dump(result,open(sys.argv[3],'w',encoding='utf-8'),allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 

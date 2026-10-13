@@ -2,7 +2,7 @@
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
-SEQUENCE_START = 13
+SEQUENCE_START = 14
 SEQUENCE_LENGTH = 5
 
 

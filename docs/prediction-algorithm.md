@@ -1,10 +1,12 @@
 # Next-session prediction algorithm
 
-For each 10-, 20- and 30-calendar-day feature window, predict the log return from
+For the exact calendar-day history period entered in the screener filters, predict the log return from
 the scan quote to the close of the next unstarted trading session. Training uses
 longer price archives; the selected window controls the information used in each
 historical example. Holidays, pre-open forecasts and completed intraday bars are
 handled by the existing trading calendar.
+
+Every whole-day period within the published scan history is supported. Window length is itself a feature. One conditional model is trained across rotating historical windows, rather than fitting hundreds of separate neural networks. Held-out metrics pool those windows; they are not separate backtests of every selectable day count. Very short windows with fewer than five observable returns have insufficient evidence and show no forecast.
 
 The three requested components are:
 

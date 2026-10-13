@@ -42,9 +42,9 @@ class ForecastDataTests(unittest.TestCase):
                 y=0.01*x[8]+0.005*x[-3]+rnd.uniform(-0.0002,0.0002)
                 rows.append({'symbol':'TEST','date':day['date'],'targetDate':c['daily'][i+1]['date'],'x':x,'y':y})
         context={'x':[0.0]*len(ml.FEATURES),'basePrice':100,'baseDate':'2026-06-01','quoteAsOf':'2026-06-01T20:00:00Z','targetDate':'2026-06-02','generatedAt':'2026-06-01T21:00:00Z','sessions':20}
-        context['x'][8]=0.5;context['x'][-3]=1;context['x'][-2]=1;context['x'][-1]=1
+        context['lookback']=17;context['x'][8]=0.5;context['x'][-3]=1;context['x'][-2]=1;context['x'][-1]=1
         predictions,metric=ml.fit_window(rows,{'TEST':context},20)
-        self.assertEqual(predictions['TEST']['forecastModel'],'supervised')
+        self.assertEqual(predictions['TEST']['forecastModel'],'supervised');self.assertEqual(predictions['TEST']['lookback'],17)
         self.assertEqual(metric['features'],'prices_and_news')
         self.assertLess(metric['meanAbsoluteError'],metric['naiveMeanAbsoluteError'])
         self.assertGreater(predictions['TEST']['estimatedPercent'],0)
@@ -68,6 +68,15 @@ class ForecastDataTests(unittest.TestCase):
         formula=MathematicalForecast().fit(x,y);equation=formula.equation(ml.FEATURES)
         calculated=equation['intercept']+sum(x[:,i]*equation['coefficients'][name] for i,name in enumerate(ml.FEATURES))
         np.testing.assert_allclose(calculated,formula.predict(x),atol=1e-10)
+
+    def test_exact_calendar_period_changes_model_features(self):
+        c=self.company();date=c['daily'][90]['date'];price=c['daily'][89]['close']
+        seventeen=ml.feature_vector(c,date,price,630,17,[])
+        thirty=ml.feature_vector(c,date,price,630,30,[])
+        self.assertEqual(seventeen[ml.FEATURES.index('calendar_days')],17)
+        self.assertEqual(thirty[ml.FEATURES.index('calendar_days')],30)
+        self.assertNotEqual(seventeen[ml.FEATURES.index('momentum')],thirty[ml.FEATURES.index('momentum')])
+        self.assertIsNone(ml.feature_vector(c,date,price,630,1,[]))
 
     def test_insufficient_data_rejected(self):
         with self.assertRaises(ValueError):ml.time_partitions([])
