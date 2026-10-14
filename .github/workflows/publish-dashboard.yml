@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: '22'
       - name: Verify public dashboard
-        run: node --test scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
+        run: node --test scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
       - name: Keep latest published report and update dashboard assets
         run: |
           mkdir -p public-site
@@ -61,17 +61,21 @@ jobs:
         env:
           FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          if [ "$FORCE_REFRESH" = true ] || git diff --name-only HEAD^ HEAD | rg -q '^(scripts/(ml-prediction\.py|forecast_models\.py|prediction-agent\.mjs|news-sentiment\.py)|lib/(prediction\.mjs|prediction-news\.mjs|supervised-data\.mjs|trading-calendar\.mjs)|\.github/actions/prediction-agent/)'; then
-            echo 'refresh=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'refresh=false' >> "$GITHUB_OUTPUT"
-          fi
+          git diff --name-only HEAD^ HEAD > /tmp/forecast-changed-files.txt
+          refresh="$FORCE_REFRESH"
+          while IFS= read -r changed_file; do
+            case "$changed_file" in
+              scripts/ml-prediction.py|scripts/forecast_models.py|scripts/prediction-agent.mjs|scripts/news-sentiment.py|lib/prediction.mjs|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/trading-calendar.mjs|.github/actions/prediction-agent/*) refresh=true ;;
+            esac
+          done < /tmp/forecast-changed-files.txt
+          echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
       - name: Preserve saved forecasts for display-only updates
         if: steps.forecast_changes.outputs.refresh == 'false'
         run: |
           for file in predictions.json prediction-history.json; do
             curl --fail --retry 3 --silent --show-error "https://tarunkrishna112003.github.io/market-pulse-agent/$file?deploy=${GITHUB_RUN_ID}" --output "public-site/$file"
           done
+          node --input-type=module -e "import {readFile,writeFile,mkdir} from 'node:fs/promises'; const p=JSON.parse(await readFile('public-site/predictions.json','utf8')); const windows=p.tableFiles||[]; await mkdir('public-site/predictions',{recursive:true}); let index=0; await Promise.all(Array.from({length:4},async()=>{while(index<windows.length){const days=windows[index++];if(!Number.isInteger(days)||days<1||days>365)throw Error('Invalid forecast history');const r=await fetch('https://tarunkrishna112003.github.io/market-pulse-agent/predictions/'+days+'.json?deploy='+process.env.GITHUB_RUN_ID);if(!r.ok)throw Error('Cannot restore '+days+'-day forecasts');await writeFile('public-site/predictions/'+days+'.json',await r.text());}}));"
       - name: Train and compare next-session prediction models
         if: steps.forecast_changes.outputs.refresh == 'true'
         uses: ./.github/actions/prediction-agent

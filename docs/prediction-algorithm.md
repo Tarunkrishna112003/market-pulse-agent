@@ -42,14 +42,13 @@ RSS headline sentiment is displayed as context and is not substituted into those
 historical features. Missing sources are reported. Price-only candidates also
 compete with candidates using news where sufficient historical coverage exists.
 
-The current top 25 form the training cohort. Other tickers in the scan's configured
-market-cap band receive forecasts from that pooled model using separately fetched
+The current top 25 form the training cohort. Every other ticker with usable history in the full scan receives forecasts from that pooled model using separately fetched
 recent daily prices. They do not have individual backtests or the same company-news
-coverage. Browser filters do not run training; tickers outside that published band
-show `Not covered`. Saved top-25 forecasts are evaluated against later actual closes.
+coverage. Browser filters do not run training; tickers with missing prices or insufficient history
+show their availability status. Saved top-25 forecasts are evaluated against later actual closes.
 
 The main screener table shows the selected model’s forecast percentage and target date directly. There is no separate Prediction page or validation badge. Internal held-out comparisons and a versioned forward ledger remain part of model selection; forward results use the actual target session’s close divided by its open, only after the session closes. Passing historical checks does not guarantee future accuracy.
-Everything runs in GitHub Actions on CPU. No hosted prediction API is required.
+Everything runs in GitHub Actions on CPU. No hosted prediction API is required. Batch inference applies the selected trees to all stocks. Published forecast files are split by history period so the browser downloads only the selected period.
 
 Implementation: `scripts/forecast_models.py`, `scripts/ml-prediction.py` and
 `scripts/prediction-agent.mjs`. Fitted models are saved as short-lived GitHub Actions

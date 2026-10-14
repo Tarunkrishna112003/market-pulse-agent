@@ -148,11 +148,17 @@ def fit_window(rows,current,lookback):
     equation_model=final if best['model']=='mathematical_formula' else final.named_estimators_['mathematical_formula'] if best['model']=='rf_lstm_math_ensemble' else None
     if equation_model is not None:metric['mathematicalEquation']=equation_model.equation(FEATURES if variant=='prices_and_news' else FEATURES[:-3])
     joblib.dump({'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],'calibrationResidualQuantiles':[low,high],'metrics':metric,'modelVersion':MODEL_VERSION,'returnBasis':'open-to-close'},f'prediction-models/{lookback}-day-model.joblib')
-    for symbol,record in current.items():
-        vector=record['x'] if variant=='prices_and_news' else record['x'][:-3]
-        value=float(final.predict(np.array([vector]))[0]);neutral=list(vector)
-        if variant=='prices_and_news':neutral[-3]=0;neutral[-2]=0
-        no_news=float(final.predict(np.array([neutral]))[0]);base=record['basePrice'];percent=float(np.expm1(value)*100)
+    keys=list(current)
+    vectors=np.asarray([current[key]['x'] if variant=='prices_and_news' else current[key]['x'][:-3] for key in keys],dtype=float)
+    if keys:
+        # Batch inference runs every tree on every stock/window without per-row thread overhead.
+        values=final.predict(vectors)
+        if variant=='prices_and_news':
+            neutral=vectors.copy();neutral[:,-3:-1]=0
+            neutral_values=final.predict(neutral)
+        else:neutral_values=values
+    for index,symbol in enumerate(keys):
+        record=current[symbol];value=float(values[index]);no_news=float(neutral_values[index]);base=record['basePrice'];percent=float(np.expm1(value)*100)
         if not all(math.isfinite(v) for v in [value,percent]) or abs(value)>1:
             forecasts[symbol]={'state':'no-signal','lookback':record.get('lookback',lookback),'reason':'Model output outside supported range'};continue
         forecasts[symbol]={'state':'estimated','forecastModel':'supervised','returnBasis':'open-to-close','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
@@ -195,7 +201,7 @@ def main():
     except Exception as error:
         metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':str(error)[:300]})
         for key,record in current.items():lookup[record['symbol']]['forecasts'].append({'state':'no-signal','lookback':record['lookback'],'reason':str(error)[:300]})
-    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. Additional tickers in the scan market-cap band use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
+    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. All additional tickers in the full scan use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
     json.dump(result,open(sys.argv[3],'w',encoding='utf-8'),allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 
