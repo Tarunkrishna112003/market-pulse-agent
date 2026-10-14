@@ -17,7 +17,7 @@ await attachMarketNews(report);
 report.research={state:'disabled',reason:'Public GitHub scanner publishes calculated market data; local Ollama research remains available in the local app.'};
 const stocks=results.map(({days,...s})=>({...s,history:days.map(d=>[d.date,d.close,d.change,d.low??null,d.high??null])}));
 await mkdir('public-site',{recursive:true});
-for(const file of ['index.html','app.js','style.css','stock.html','stock.js','prediction.html','prediction.js'])await copyFile('github-pages/'+file,'public-site/'+file);
+for(const file of ['index.html','app.js','style.css','stock.html','stock.js'])await copyFile('github-pages/'+file,'public-site/'+file);
 await writeFile('public-site/.nojekyll','');
 for(const file of ['filters.mjs','csv-report.mjs','stock-history.mjs','trading-calendar.mjs'])await copyFile('lib/'+file,'public-site/'+file);
 await writeFile('public-site/data.json',JSON.stringify({report,stocks}));
