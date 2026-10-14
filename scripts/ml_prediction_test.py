@@ -11,7 +11,7 @@ class ForecastDataTests(unittest.TestCase):
         while len(days)<100:
             if d.weekday()<5:
                 close*=1.005
-                days.append({'date':d.date().isoformat(),'close':close,'low':close*.99,'high':close*1.01,'volume':100000,'closeMinute':960})
+                days.append({'date':d.date().isoformat(),'close':close,'open':close*.995,'low':close*.99,'high':close*1.01,'volume':100000,'closeMinute':960})
             d+=timedelta(days=1)
         bars=[{'date':x['date'],'timestamp':datetime.fromisoformat(x['date']).replace(tzinfo=ZoneInfo('America/New_York'),hour=10,minute=30).timestamp(),'close':x['close']*.995} for x in days]
         return {'symbol':'TEST','daily':days,'hourly':bars,'newsTimeline':[]}
@@ -25,6 +25,20 @@ class ForecastDataTests(unittest.TestCase):
         c=self.company();rows=ml.build_rows(c,10,[],datetime(2027,1,1,tzinfo=timezone.utc));self.assertTrue(any(r['date']==r['targetDate'] for r in rows));self.assertTrue(any(r['date']<r['targetDate'] for r in rows))
         sample=next(r for r in rows if r['date']<r['targetDate']);future=next(d for d in c['daily'] if d['date']==sample['targetDate']);self.assertGreater(future['close'],0)
         early=ml.build_rows(c,10,[],datetime(2026,1,15,tzinfo=timezone.utc));self.assertTrue(all(r['targetDate']<'2026-01-15' for r in early))
+    def test_target_is_next_session_close_over_open_not_scan_price(self):
+        c=self.company();target=c['daily'][50];target['open']=target['close']/0.95
+        rows=ml.build_rows(c,17,[],datetime(2027,1,1,tzinfo=timezone.utc))
+        matching=[r for r in rows if r['targetDate']==target['date']]
+        self.assertTrue(any(r['date']==r['targetDate'] for r in matching))
+        self.assertTrue(any(r['date']<r['targetDate'] for r in matching))
+        for row in matching:self.assertAlmostEqual(row['y'],ml.math.log(0.95))
+        preopen=next(r for r in matching if r['date']==r['targetDate'])
+        before=list(preopen['x']);target['open']*=2;target['close']*=3
+        revised=ml.build_rows(c,17,[],datetime(2027,1,1,tzinfo=timezone.utc))
+        self.assertEqual(before,next(r['x'] for r in revised if r['date']==target['date'] and r['targetDate']==target['date']))
+        del target['open']
+        self.assertFalse(any(r['targetDate']==target['date'] for r in ml.build_rows(c,17,[],datetime(2027,1,1,tzinfo=timezone.utc))))
+
     def test_chronological_partitions_are_purged(self):
         c=self.company();rows=[]
         for i,d in enumerate(c['daily'][:-1]):
@@ -48,6 +62,9 @@ class ForecastDataTests(unittest.TestCase):
         self.assertEqual(metric['features'],'prices_and_news')
         self.assertLess(metric['meanAbsoluteError'],metric['naiveMeanAbsoluteError'])
         self.assertGreater(predictions['TEST']['estimatedPercent'],0)
+        self.assertEqual(predictions['TEST']['returnBasis'],'open-to-close')
+        self.assertNotIn('projectedClose',predictions['TEST'])
+        self.assertNotIn('estimatedDollar',predictions['TEST'])
         for name in ['neural_network','random_forest','lstm','mathematical_formula','rf_lstm_math_ensemble']:
             self.assertTrue(any(r['model']==name and 'cvMAE' in r for r in metric['candidates']),name)
         self.assertEqual(len({r['targetDate'] for r in rows if r['date']>=metric['testStart']}),metric['testTradingDates'])

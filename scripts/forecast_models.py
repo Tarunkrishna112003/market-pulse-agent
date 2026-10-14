@@ -92,6 +92,6 @@ class MathematicalForecast(RegressorMixin, BaseEstimator):
         # Convert the scaled equation back into original feature units.
         coefficients = self.model_.coef_ / self.scaler_.scale_
         intercept = float(self.model_.intercept_ - coefficients @ self.scaler_.center_)
-        return {'target': 'log(next_session_close / scan_price)', 'intercept': intercept,
+        return {'target': 'log(target_session_close / target_session_open)', 'intercept': intercept,
                 'coefficients': dict(zip(names, coefficients.tolist())),
                 'percentConversion': '100 * (exp(predicted_log_return) - 1)'}

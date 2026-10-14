@@ -10,7 +10,7 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
-MODEL_VERSION = 'adaptive-rf-lstm-math-v5'
+MODEL_VERSION = 'adaptive-open-to-close-v6'
 FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen','calendar_days',*[f'return_lag_{i}' for i in range(5,0,-1)],'news_tone','news_tone_7d','news_present']
 
 def feature_vector(company, anchor_date, anchor_price, minute, lookback, market):
@@ -42,13 +42,17 @@ def build_rows(company,lookback,market,now):
     dates = sorted(daily)
     next_date = {a:b for a,b in zip(dates,dates[1:])}
     rows=[]
+    # Same-session open-to-close target; future opening prices are labels, never inputs.
+    def session_return(day):
+        opening=day.get('open')
+        return math.log(day['close']/opening) if isinstance(opening,(int,float)) and math.isfinite(opening) and opening>0 else None
     # Pre-open examples use the prior close, with only information available at 9am.
     for previous,date in zip(dates,dates[1:]):
         if daily[previous].get('nextSession',date)!=date:continue
         target_close=datetime.fromisoformat(date).replace(tzinfo=NY,hour=daily[date].get('closeMinute',960)//60,minute=daily[date].get('closeMinute',960)%60)
-        if target_close.astimezone(timezone.utc)>now:continue
+        if target_close.astimezone(timezone.utc)>now or session_return(daily[date]) is None:continue
         features=feature_vector(company,date,daily[previous]['close'],540,lookback,market)
-        if features is not None:rows.append({'symbol':company['symbol'],'date':date,'targetDate':date,'x':features,'y':math.log(daily[date]['close']/daily[previous]['close'])})
+        if features is not None:rows.append({'symbol':company['symbol'],'date':date,'targetDate':date,'x':features,'y':session_return(daily[date])})
     for bar in company['hourly']:
         begin=datetime.fromtimestamp(bar['timestamp'],timezone.utc).astimezone(NY)
         # Yahoo regular-session 60m bars: the final bar can be shorter than 60m.
@@ -64,12 +68,12 @@ def build_rows(company,lookback,market,now):
         # Next close must already be known at data collection time.
         target_minute=daily[target].get('closeMinute',960)
         target_close=datetime.fromisoformat(target).replace(tzinfo=NY,hour=target_minute//60,minute=target_minute%60)
-        if target_close.astimezone(timezone.utc)>now:
+        if target_close.astimezone(timezone.utc)>now or session_return(daily[target]) is None:
             continue
         features=feature_vector(company,date,bar['close'],end.hour*60+end.minute,lookback,market)
         if features is None:
             continue
-        rows.append({'symbol':company['symbol'],'date':date,'targetDate':target,'x':features,'y':math.log(daily[target]['close']/bar['close'])})
+        rows.append({'symbol':company['symbol'],'date':date,'targetDate':target,'x':features,'y':session_return(daily[target])})
     return rows
 
 def time_partitions(rows):
@@ -136,22 +140,22 @@ def fit_window(rows,current,lookback):
     actual=np.expm1(ty)*100;predicted=np.expm1(tp)*100
     mae=float(np.mean(np.abs(predicted-actual)));baseline=float(np.mean(np.abs(actual)));direction=float(np.mean(np.sign(tp)==np.sign(ty)));coverage=float(np.mean((ty>=tp+low)&(ty<=tp+high)))
     passed=mae<baseline*0.98 and direction>0.52 and coverage>=0.65
-    metric={'model':best['model'],'features':variant,'trainingRows':len(rows),'testSamples':len(test),'testTradingDates':len({r['targetDate'] for r in test}),'testStart':min(r['date'] for r in test),'testEnd':max(r['targetDate'] for r in test),'meanAbsoluteError':mae,'naiveMeanAbsoluteError':baseline,'directionAccuracy':direction,'intervalCoverage':coverage,'validationPassed':passed,'newsTrainingAvailable':news_eligible,'candidates':scores,'calibrationSamples':len(calibration)}
+    metric={'returnBasis':'open-to-close','model':best['model'],'features':variant,'trainingRows':len(rows),'testSamples':len(test),'testTradingDates':len({r['targetDate'] for r in test}),'testStart':min(r['date'] for r in test),'testEnd':max(r['targetDate'] for r in test),'meanAbsoluteError':mae,'naiveMeanAbsoluteError':baseline,'directionAccuracy':direction,'intervalCoverage':coverage,'validationPassed':passed,'newsTrainingAvailable':news_eligible,'candidates':scores,'calibrationSamples':len(calibration)}
     allx,ally=arrays(rows,variant);final=clone(model).fit(allx,ally);forecasts={}
     os.makedirs('prediction-models',exist_ok=True)
     metric['algorithm']='Choose the lowest chronological validation MAE among individual models and the RF/LSTM/math ensemble; evaluate once on untouched final sessions.'
     metric['ensembleWeights']={'random_forest':1/3,'lstm':1/3,'mathematical_formula':1/3}
     equation_model=final if best['model']=='mathematical_formula' else final.named_estimators_['mathematical_formula'] if best['model']=='rf_lstm_math_ensemble' else None
     if equation_model is not None:metric['mathematicalEquation']=equation_model.equation(FEATURES if variant=='prices_and_news' else FEATURES[:-3])
-    joblib.dump({'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],'calibrationResidualQuantiles':[low,high],'metrics':metric,'modelVersion':MODEL_VERSION},f'prediction-models/{lookback}-day-model.joblib')
+    joblib.dump({'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],'calibrationResidualQuantiles':[low,high],'metrics':metric,'modelVersion':MODEL_VERSION,'returnBasis':'open-to-close'},f'prediction-models/{lookback}-day-model.joblib')
     for symbol,record in current.items():
         vector=record['x'] if variant=='prices_and_news' else record['x'][:-3]
         value=float(final.predict(np.array([vector]))[0]);neutral=list(vector)
         if variant=='prices_and_news':neutral[-3]=0;neutral[-2]=0
-        no_news=float(final.predict(np.array([neutral]))[0]);base=record['basePrice'];percent=float(np.expm1(value)*100);close=base*math.exp(value)
-        if not all(math.isfinite(v) for v in [value,percent,close]) or abs(value)>1:
+        no_news=float(final.predict(np.array([neutral]))[0]);base=record['basePrice'];percent=float(np.expm1(value)*100)
+        if not all(math.isfinite(v) for v in [value,percent]) or abs(value)>1:
             forecasts[symbol]={'state':'no-signal','lookback':record.get('lookback',lookback),'reason':'Model output outside supported range'};continue
-        forecasts[symbol]={'state':'estimated','forecastModel':'supervised','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'baseClose':base,'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'estimatedDollar':close-base,'projectedClose':close,'remainingPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
+        forecasts[symbol]={'state':'estimated','forecastModel':'supervised','returnBasis':'open-to-close','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
     return forecasts,metric
 
 def main():
@@ -191,7 +195,7 @@ def main():
     except Exception as error:
         metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':str(error)[:300]})
         for key,record in current.items():lookup[record['symbol']]['forecasts'].append({'state':'no-signal','lookback':record['lookback'],'reason':str(error)[:300]})
-    result={'modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. Additional tickers in the scan market-cap band use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
+    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. Additional tickers in the scan market-cap band use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
     json.dump(result,open(sys.argv[3],'w',encoding='utf-8'),allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 

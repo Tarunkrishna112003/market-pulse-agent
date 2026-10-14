@@ -1,7 +1,7 @@
 # Next-session prediction algorithm
 
 For the exact calendar-day history period entered in the screener filters, predict the log return from
-the scan quote to the close of the next unstarted trading session. Training uses
+the opening price to the closing price of the next unstarted trading session. Training uses
 longer price archives; the selected window controls the information used in each
 historical example. Holidays, pre-open forecasts and completed intraday bars are
 handled by the existing trading calendar.
@@ -22,12 +22,13 @@ Let the component predictions of log return be `r_RF`, `r_LSTM` and `r_math`.
 The combined candidate uses a fixed formula:
 
 ```
+training_target = log(target_session_close / target_session_open)
 r_math = intercept + sum(coefficient[i] * feature[i])
 r_combined = (r_RF + r_LSTM + r_math) / 3
 predicted_percent_change = 100 * (exp(r_combined) - 1)
-predicted_close = scan_price * exp(r_combined)
-predicted_dollar_change = predicted_close - scan_price
 ```
+
+The future session’s open and close are historical labels only, never inference inputs. The model predicts the percentage directly; it does not need to guess the future opening price first. The scan quote remains an input, but is not the percentage denominator. Forecasts do not report a made-up dollar change or projected close anchored to that quote.
 
 Weights are fixed before validation. The combination competes with its components
 and the existing baseline models on three chronological folds. The lowest
@@ -47,9 +48,7 @@ recent daily prices. They do not have individual backtests or the same company-n
 coverage. Browser filters do not run training; tickers outside that published band
 show `Not covered`. Saved top-25 forecasts are evaluated against later actual closes.
 
-Models failing the existing held-out error, direction or interval-coverage gates
-show `No reliable signal` by default. Raw forecasts remain reviewable on the
-Prediction page. Passing historical checks does not guarantee future accuracy.
+The main screener table shows the selected model’s forecast percentage and target date directly. There is no separate Prediction page or validation badge. Internal held-out comparisons and a versioned forward ledger remain part of model selection; forward results use the actual target session’s close divided by its open, only after the session closes. Passing historical checks does not guarantee future accuracy.
 Everything runs in GitHub Actions on CPU. No hosted prediction API is required.
 
 Implementation: `scripts/forecast_models.py`, `scripts/ml-prediction.py` and
