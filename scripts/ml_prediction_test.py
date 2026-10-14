@@ -95,6 +95,37 @@ class ForecastDataTests(unittest.TestCase):
         self.assertNotEqual(seventeen[ml.FEATURES.index('momentum')],thirty[ml.FEATURES.index('momentum')])
         self.assertIsNone(ml.feature_vector(c,date,price,630,1,[]))
 
+    def test_year_of_periods_is_written_separately_for_full_universe(self):
+        import json
+        import tempfile
+        import io
+        import contextlib
+        import numpy as np
+        from unittest.mock import patch
+        class ConstantModel:
+            def predict(self,x):return np.full(len(x),0.01)
+        metric={'features':'prices','validationPassed':False,'trainingRows':1000,'model':'fixture'}
+        bundle={'model':ConstantModel(),'metrics':metric,'calibrationResidualQuantiles':[-0.02,0.02]}
+        training=self.company();training['name']='Training Company'
+        extra=self.company();extra.update(symbol='EXTRA',name='Other scanned company',inferenceOnly=True)
+        for company in [training,extra]:company['forecastContext']={'state':'ready','basePrice':100,'baseDate':company['daily'][-2]['date'],'quoteAsOf':'2026-05-21T20:00:00Z','targetDate':'2026-05-22','inferenceDate':company['daily'][-1]['date'],'inferenceMinute':960}
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);dataset=root/'data.json';news=root/'news.json';output=root/'prediction-trained.json'
+            dataset.write_text(json.dumps({'reportId':'year','generatedAt':'2027-01-01T00:00:00Z','availableLookback':365,'companies':[training,extra],'universe':[{'symbol':'TEST'},{'symbol':'EXTRA'},{'symbol':'MISSING'}],'market':[],'errors':[]}))
+            news.write_text(json.dumps({'companies':[]}))
+            with patch.object(ml.sys,'argv',['ml',str(dataset),str(news),str(output)]),patch.object(ml,'fit_window',return_value=({},metric)),patch('joblib.load',return_value=bundle),contextlib.redirect_stdout(io.StringIO()):ml.main()
+            result=json.loads(output.read_text());self.assertEqual(len(result['supportedLookbacks']),365)
+            self.assertEqual([r['symbol'] for r in result['rows']],['TEST'])
+            self.assertEqual(len(result['rows'][0]['forecasts']),365)
+            seventeen=json.loads((root/'predictions/17.json').read_text())
+            self.assertEqual(len(seventeen['rows']),3)
+            extra_forecast=next(r for r in seventeen['rows'] if r['symbol']=='EXTRA')
+            self.assertEqual(extra_forecast['returnBasis'],'open-to-close')
+            self.assertAlmostEqual(extra_forecast['estimatedPercent'],100*(ml.math.exp(0.01)-1))
+            year=json.loads((root/'predictions/365.json').read_text())
+            self.assertEqual(len(year['rows']),3)
+            self.assertEqual(next(r for r in year['rows'] if r['symbol']=='MISSING')['state'],'no-signal')
+
     def test_insufficient_data_rejected(self):
         with self.assertRaises(ValueError):ml.time_partitions([])
 if __name__=='__main__':unittest.main()

@@ -148,6 +148,14 @@ def fit_window(rows,current,lookback):
     equation_model=final if best['model']=='mathematical_formula' else final.named_estimators_['mathematical_formula'] if best['model']=='rf_lstm_math_ensemble' else None
     if equation_model is not None:metric['mathematicalEquation']=equation_model.equation(FEATURES if variant=='prices_and_news' else FEATURES[:-3])
     joblib.dump({'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],'calibrationResidualQuantiles':[low,high],'metrics':metric,'modelVersion':MODEL_VERSION,'returnBasis':'open-to-close'},f'prediction-models/{lookback}-day-model.joblib')
+    bundle={'model':final,'metrics':metric,'calibrationResidualQuantiles':[low,high]}
+    return predict_records(bundle,current,lookback),metric
+
+
+def predict_records(bundle,current,lookback):
+    import numpy as np
+    final=bundle['model'];metric=bundle['metrics'];variant=metric['features']
+    low,high=bundle['calibrationResidualQuantiles'];passed=metric['validationPassed'];forecasts={}
     keys=list(current)
     vectors=np.asarray([current[key]['x'] if variant=='prices_and_news' else current[key]['x'][:-3] for key in keys],dtype=float)
     if keys:
@@ -162,47 +170,68 @@ def fit_window(rows,current,lookback):
         if not all(math.isfinite(v) for v in [value,percent]) or abs(value)>1:
             forecasts[symbol]={'state':'no-signal','lookback':record.get('lookback',lookback),'reason':'Model output outside supported range'};continue
         forecasts[symbol]={'state':'estimated','forecastModel':'supervised','returnBasis':'open-to-close','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
-    return forecasts,metric
+    return forecasts
 
 def main():
-    dataset=json.load(open(sys.argv[1],encoding='utf-8'));news=json.load(open(sys.argv[2],encoding='utf-8'))
+    with open(sys.argv[1],encoding='utf-8') as source:dataset=json.load(source)
+    with open(sys.argv[2],encoding='utf-8') as source:news=json.load(source)
     now=datetime.fromisoformat(dataset['generatedAt'].replace('Z','+00:00'))
-    rows_out=[{'symbol':c['symbol'],'name':c['name'],'headlines':next((n['headlines'] for n in news['companies'] if n['symbol']==c['symbol']),[]),'forecasts':[],'newsState':next((n['state'] for n in news['companies'] if n['symbol']==c['symbol']),'unavailable')} for c in dataset['companies']]
+    import joblib
+    from pathlib import Path
+    # Detailed rows are retained only for the training cohort; full-universe table
+    # results are written one period at a time rather than accumulated in memory.
+    training_companies=[c for c in dataset['companies'] if not c.get('inferenceOnly')]
+    news_by_symbol={n['symbol']:n for n in news['companies']}
+    rows_out=[{'symbol':c['symbol'],'name':c['name'],'headlines':news_by_symbol.get(c['symbol'],{}).get('headlines',[]),'forecasts':[],'newsState':news_by_symbol.get(c['symbol'],{}).get('state','unavailable')} for c in training_companies]
     lookup={r['symbol']:r for r in rows_out};metrics=[]
-    maximum=max(1,min(365,int(dataset.get('availableLookback',30))))
+    maximum=max(1,min(365,int(dataset.get('availableLookback',365))))
     windows=list(range(1,maximum+1))
-    # Train one conditional model, avoiding hundreds of separate costly LSTM fits.
-    # Window length is an explicit feature. Rotate historical dates across windows.
     training_windows=[7,10,14,20,30,60,90,180,365]
-    records=[];current={}
-    for company in dataset['companies']:
-        if not company.get('inferenceOnly'):
-            for index,window in enumerate(training_windows):
-                candidates=build_rows(company,window,dataset['market'],now)
-                records.extend(r for r in candidates if datetime.fromisoformat(r['date']).toordinal()%len(training_windows)==index)
-        context=company['forecastContext']
-        for window in windows:
+    records=[]
+    for company in training_companies:
+        for index,window in enumerate(training_windows):
+            candidates=build_rows(company,window,dataset['market'],now)
+            records.extend(r for r in candidates if datetime.fromisoformat(r['date']).toordinal()%len(training_windows)==index)
+    bundle=None;training_error=None
+    try:
+        _,metric=fit_window(records,{},'adaptive')
+        metrics.append({'lookback':0,'adaptive':True,**metric})
+        bundle=joblib.load('prediction-models/adaptive-day-model.joblib')
+    except Exception as error:
+        training_error=str(error)[:300]
+        metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':training_error})
+    universe=dataset.get('universe') or [{'symbol':c['symbol'],'name':c['name']} for c in dataset['companies']]
+    directory=Path(sys.argv[3]).parent/'predictions';directory.mkdir(parents=True,exist_ok=True)
+    compact_keys=['state','forecastModel','returnBasis','lookback','targetDate','estimatedPercent','reason']
+    for window in windows:
+        current={};forecasts={}
+        for company in dataset['companies']:
+            symbol=company['symbol'];context=company['forecastContext']
             if context['state']!='ready':
-                lookup[company['symbol']]['forecasts'].append({'state':'stale','lookback':window,'reason':context['reason'],'targetDate':context['targetDate']});continue
+                forecasts[symbol]={'state':'stale','lookback':window,'reason':context['reason'],'targetDate':context['targetDate']};continue
             inference_date=context['inferenceDate'];inference_minute=context['inferenceMinute']
             vector=feature_vector(company,inference_date,context['basePrice'],inference_minute,window,dataset['market'])
             if vector is None:
-                lookup[company['symbol']]['forecasts'].append({'state':'insufficient-history','lookback':window,'reason':'The selected period contains fewer than five observable daily returns'});continue
-            key=company['symbol']+':'+str(window)
-            current[key]={**context,'symbol':company['symbol'],'lookback':window,'x':vector,'generatedAt':dataset['generatedAt'],'sessions':len([d for d in company['daily'] if d['date']<inference_date and d['date']>=(datetime.fromisoformat(inference_date)-timedelta(days=window)).date().isoformat()]),'newsCount':len(lookup[company['symbol']]['headlines']),'newsFeatureCutoff':'prior completed UTC day'}
-    try:
-        forecasts,metric=fit_window(records,current,'adaptive')
-        metrics.append({'lookback':0,'adaptive':True,**metric})
-        for key,result in forecasts.items():
-            # Keep one copy of the diagnostics, rather than duplicating it per day/ticker.
-            result.pop('modelQuality',None)
-            result['modelKey']='adaptive'
-            lookup[current[key]['symbol']]['forecasts'].append(result)
-    except Exception as error:
-        metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':str(error)[:300]})
-        for key,record in current.items():lookup[record['symbol']]['forecasts'].append({'state':'no-signal','lookback':record['lookback'],'reason':str(error)[:300]})
+                forecasts[symbol]={'state':'insufficient-history','lookback':window,'reason':'Insufficient complete history for the selected calendar-day period'};continue
+            current[symbol]={**context,'symbol':symbol,'lookback':window,'x':vector,'generatedAt':dataset['generatedAt'],'sessions':len([d for d in company['daily'] if d['date']<inference_date and d['date']>=(datetime.fromisoformat(inference_date)-timedelta(days=window)).date().isoformat()]),'newsCount':len(news_by_symbol.get(symbol,{}).get('headlines',[])),'newsFeatureCutoff':'prior completed UTC day'}
+        if bundle is not None:
+            forecasts.update(predict_records(bundle,current,window))
+        else:
+            forecasts.update({symbol:{'state':'no-signal','lookback':window,'reason':training_error} for symbol in current})
+        table_rows=[]
+        for stock in universe:
+            symbol=stock['symbol']
+            forecast=forecasts.get(symbol,{'state':'no-signal','lookback':window,'reason':'Historical prices could not be retrieved'})
+            if symbol in lookup:
+                detail={k:v for k,v in forecast.items() if k!='modelQuality'}
+                if detail.get('state')=='estimated':detail['modelKey']='adaptive'
+                lookup[symbol]['forecasts'].append(detail)
+            table_rows.append({'symbol':symbol,**{k:forecast[k] for k in compact_keys if k in forecast}})
+        with (directory/f'{window}.json').open('w',encoding='utf-8') as output:
+            json.dump({'reportId':dataset['reportId'],'lookback':window,'rows':table_rows},output,allow_nan=False)
+        if window==maximum or window%30==0:print(f'Wrote {window}/{maximum} history periods for {len(universe)} stocks',flush=True)
     result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. All additional tickers in the full scan use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
-    json.dump(result,open(sys.argv[3],'w',encoding='utf-8'),allow_nan=False)
+    with open(sys.argv[3],'w',encoding='utf-8') as output:json.dump(result,output,allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 
 if __name__=='__main__':main()

@@ -6,6 +6,8 @@ longer price archives; the selected window controls the information used in each
 historical example. Holidays, pre-open forecasts and completed intraday bars are
 handled by the existing trading calendar.
 
+Automatic full-universe scans fetch 365 calendar days, plus an earlier baseline for returns. The day filter can select a shorter analysis period. The 30-day low/high columns keep their fixed 30-day definition.
+
 Every whole-day period within the published scan history is supported. Window length is itself a feature. One conditional model is trained across rotating historical windows, rather than fitting hundreds of separate neural networks. Held-out metrics pool those windows; they are not separate backtests of every selectable day count. Very short windows with fewer than five observable returns have insufficient evidence and show no forecast.
 
 The three requested components are:
@@ -48,7 +50,7 @@ coverage. Browser filters do not run training; tickers with missing prices or in
 show their availability status. Saved top-25 forecasts are evaluated against later actual closes.
 
 The main screener table shows the selected model’s forecast percentage and target date directly. There is no separate Prediction page or validation badge. Internal held-out comparisons and a versioned forward ledger remain part of model selection; forward results use the actual target session’s close divided by its open, only after the session closes. Passing historical checks does not guarantee future accuracy.
-Everything runs in GitHub Actions on CPU. No hosted prediction API is required. Batch inference applies the selected trees to all stocks. Published forecast files are split by history period so the browser downloads only the selected period.
+Everything runs in GitHub Actions on CPU. No hosted prediction API is required. Batch inference applies the selected trees to all stocks. Prediction inference processes one history period at a time to bound memory use. Annual scan archives also retain volume so full-universe inference can reuse their prices. Published forecast files are split by history period so the browser downloads only the selected period.
 
 Implementation: `scripts/forecast_models.py`, `scripts/ml-prediction.py` and
 `scripts/prediction-agent.mjs`. Fitted models are saved as short-lived GitHub Actions
