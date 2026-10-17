@@ -6,9 +6,9 @@ from zoneinfo import ZoneInfo
 spec=importlib.util.spec_from_file_location('prediction_ml',pathlib.Path(__file__).with_name('ml-prediction.py'))
 ml=importlib.util.module_from_spec(spec);spec.loader.exec_module(ml)
 class ForecastDataTests(unittest.TestCase):
-    def company(self):
+    def company(self,count=100):
         days=[];close=100;d=datetime(2026,1,2)
-        while len(days)<100:
+        while len(days)<count:
             if d.weekday()<5:
                 close*=1.005
                 days.append({'date':d.date().isoformat(),'close':close,'open':close*.995,'low':close*.99,'high':close*1.01,'volume':100000,'closeMinute':960})
@@ -95,7 +95,7 @@ class ForecastDataTests(unittest.TestCase):
         self.assertNotEqual(seventeen[ml.FEATURES.index('momentum')],thirty[ml.FEATURES.index('momentum')])
         self.assertIsNone(ml.feature_vector(c,date,price,630,1,[]))
 
-    def test_year_of_periods_is_written_separately_for_full_universe(self):
+    def test_only_one_year_forecasts_are_written_for_full_universe(self):
         import json
         import tempfile
         import io
@@ -106,18 +106,18 @@ class ForecastDataTests(unittest.TestCase):
             def predict(self,x):return np.full(len(x),0.01)
         metric={'features':'prices','validationPassed':False,'trainingRows':1000,'model':'fixture'}
         bundle={'model':ConstantModel(),'metrics':metric,'calibrationResidualQuantiles':[-0.02,0.02]}
-        training=self.company();training['name']='Training Company'
-        extra=self.company();extra.update(symbol='EXTRA',name='Other scanned company',inferenceOnly=True)
+        training=self.company(300);training['name']='Training Company'
+        extra=self.company(300);extra.update(symbol='EXTRA',name='Other scanned company',inferenceOnly=True)
         for company in [training,extra]:company['forecastContext']={'state':'ready','basePrice':100,'baseDate':company['daily'][-2]['date'],'quoteAsOf':'2026-05-21T20:00:00Z','targetDate':'2026-05-22','inferenceDate':company['daily'][-1]['date'],'inferenceMinute':960}
         with tempfile.TemporaryDirectory() as folder:
             root=pathlib.Path(folder);dataset=root/'data.json';news=root/'news.json';output=root/'prediction-trained.json'
             dataset.write_text(json.dumps({'reportId':'year','generatedAt':'2027-01-01T00:00:00Z','availableLookback':365,'companies':[training,extra],'universe':[{'symbol':'TEST'},{'symbol':'EXTRA'},{'symbol':'MISSING'}],'market':[],'errors':[]}))
             news.write_text(json.dumps({'companies':[]}))
             with patch.object(ml.sys,'argv',['ml',str(dataset),str(news),str(output)]),patch.object(ml,'fit_window',return_value=({},metric)),patch('joblib.load',return_value=bundle),contextlib.redirect_stdout(io.StringIO()):ml.main()
-            result=json.loads(output.read_text());self.assertEqual(len(result['supportedLookbacks']),365)
+            result=json.loads(output.read_text());self.assertEqual(result['supportedLookbacks'],[365])
             self.assertEqual([r['symbol'] for r in result['rows']],['TEST'])
-            self.assertEqual(len(result['rows'][0]['forecasts']),365)
-            seventeen=json.loads((root/'predictions/17.json').read_text())
+            self.assertEqual(len(result['rows'][0]['forecasts']),1)
+            seventeen=json.loads((root/'predictions/365.json').read_text());self.assertFalse((root/'predictions/17.json').exists())
             self.assertEqual(len(seventeen['rows']),3)
             extra_forecast=next(r for r in seventeen['rows'] if r['symbol']=='EXTRA')
             self.assertEqual(extra_forecast['returnBasis'],'open-to-close')

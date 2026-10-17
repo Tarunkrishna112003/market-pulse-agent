@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'github-pages/**'
+      - 'lib/daily-report.mjs'
+      - 'scripts/daily-report.mjs'
       - 'lib/filters.mjs'
       - 'lib/csv-report.mjs'
       - 'lib/stock-history.mjs'
@@ -42,7 +44,7 @@ jobs:
         with:
           node-version: '22'
       - name: Verify public dashboard
-        run: node --test scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
+        run: node --test scripts/daily-report.test.mjs scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
       - name: Keep latest published report and update dashboard assets
         run: |
           mkdir -p public-site
@@ -79,6 +81,15 @@ jobs:
       - name: Train and compare next-session prediction models
         if: steps.forecast_changes.outputs.refresh == 'true'
         uses: ./.github/actions/prediction-agent
+      - name: Prepare or preserve daily closing report
+        run: node scripts/daily-report.mjs
+      - name: Archive daily prediction report
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-closing-prediction-report-${{ github.run_id }}
+          path: daily-reports/
+          if-no-files-found: ignore
+          retention-days: 90
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

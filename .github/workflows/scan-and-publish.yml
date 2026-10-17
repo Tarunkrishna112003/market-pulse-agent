@@ -1,5 +1,8 @@
 name: Scan NASDAQ and NYSE and publish dashboard
 on:
+  schedule:
+    # 21:35 UTC is after the US close in both daylight and standard time.
+    - cron: '35 21 * * 1-5'
   workflow_dispatch:
     inputs:
       lookback_days:
@@ -10,7 +13,7 @@ on:
         default: '20'
       max_cap_b:
         description: Maximum market cap (USD billions)
-        default: '100'
+        default: '200'
       min_move:
         description: Minimum average absolute daily movement (%)
         default: '0'
@@ -25,7 +28,22 @@ concurrency:
   group: github-pages-scan
   cancel-in-progress: false
 jobs:
+  session:
+    runs-on: ubuntu-latest
+    outputs:
+      run_scan: ${{ steps.session.outputs.run_scan }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: session
+        run: |
+          node --input-type=module -e "import {appendFileSync} from 'node:fs';import {easternSessionClock,tradingDay,sessionExpired} from './lib/trading-calendar.mjs';const clock=easternSessionClock();const run=process.env.GITHUB_EVENT_NAME!=='schedule'||tradingDay(clock.date)&&sessionExpired(clock.date);appendFileSync(process.env.GITHUB_OUTPUT,'run_scan='+run+'\n');"
   scan:
+    needs: session
+    if: needs.session.outputs.run_scan == 'true'
+
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -34,18 +52,27 @@ jobs:
         with:
           node-version: '22'
       - name: Validate screener
-        run: node --test scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/screener.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
+        run: node --test scripts/daily-report.test.mjs scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/screener.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
       - name: Fresh full-universe scan
         run: node scripts/github-scan.mjs
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '365' }}
           MIN_CAP_B: ${{ inputs.min_cap_b || '20' }}
-          MAX_CAP_B: ${{ inputs.max_cap_b || '100' }}
+          MAX_CAP_B: ${{ inputs.max_cap_b || '200' }}
           MIN_MOVE: ${{ inputs.min_move || '0' }}
           MAX_MOVE: ${{ github.event_name == 'schedule' && '5' || inputs.max_move }}
       - name: Analyse top 25 prices and company news
         uses: ./.github/actions/prediction-agent
+      - name: Prepare daily top-25 closing report
+        run: node scripts/daily-report.mjs
+      - name: Archive daily prediction report
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-closing-prediction-report-${{ github.run_id }}
+          path: daily-reports/
+          if-no-files-found: ignore
+          retention-days: 90
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

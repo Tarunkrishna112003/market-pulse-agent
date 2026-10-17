@@ -1,14 +1,12 @@
 # Next-session prediction algorithm
 
-For the exact calendar-day history period entered in the screener filters, predict the log return from
-the opening price to the closing price of the next unstarted trading session. Training uses
-longer price archives; the selected window controls the information used in each
-historical example. Holidays, pre-open forecasts and completed intraday bars are
-handled by the existing trading calendar.
-
-Automatic full-universe scans fetch 365 calendar days, plus an earlier baseline for returns. The day filter can select a shorter analysis period. The 30-day low/high columns keep their fixed 30-day definition.
-
-Every whole-day period within the published scan history is supported. Window length is itself a feature. One conditional model is trained across rotating historical windows, rather than fitting hundreds of separate neural networks. Held-out metrics pool those windows; they are not separate backtests of every selectable day count. Very short windows with fewer than five observable returns have insufficient evidence and show no forecast.
+Every prediction uses **365 calendar days of price features**, regardless of the
+screener's display lookback. The target is the opening-to-closing log return of the
+next unstarted trading session. Historical daily prices are fetched over a longer
+800-day training archive so historical examples can each have a full year of inputs.
+Full-universe scans retain one year plus a return baseline. The 30-day low/high
+columns retain their fixed 30-day definition. Stocks without a complete year of
+usable history do not receive a made-up forecast.
 
 The three requested components are:
 
@@ -55,3 +53,22 @@ Everything runs in GitHub Actions on CPU. No hosted prediction API is required. 
 Implementation: `scripts/forecast_models.py`, `scripts/ml-prediction.py` and
 `scripts/prediction-agent.mjs`. Fitted models are saved as short-lived GitHub Actions
 artifacts; Python classes remain in a stable module so artifacts can be reloaded.
+
+## Daily market-close report
+
+A weekday GitHub Actions schedule at 21:35 UTC starts a fresh full-universe scan
+after the US close in both daylight and standard time. The NYSE calendar skips
+holidays; the ordinary three-hour scans also create the report when eligible.
+GitHub may delay scheduled runs, so this is not an exact-time delivery guarantee.
+
+After a completed session, the report filters to $20B–$200B inclusive and 0–5%
+average absolute daily movement over the past 365 calendar days. It ranks by that
+movement, descending, selects up to 25 stocks and attaches their one-year-model
+predictions for the next session's open-to-close percentage. This is the existing
+screener movement measure, not statistical variance.
+
+The first published report for each closing date is preserved. The latest JSON,
+Markdown and CSV reports are available from the dashboard. Dated copies are saved
+as GitHub Actions artifacts for 90 days. Intraday publications preserve the previous
+closing report. A report records source failures and leaves unavailable forecasts
+blank rather than substituting zero.

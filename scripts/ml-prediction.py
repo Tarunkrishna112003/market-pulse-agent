@@ -10,7 +10,7 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
-MODEL_VERSION = 'adaptive-open-to-close-v6'
+MODEL_VERSION = 'annual-open-to-close-v7'
 FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen','calendar_days',*[f'return_lag_{i}' for i in range(5,0,-1)],'news_tone','news_tone_7d','news_present']
 
 def feature_vector(company, anchor_date, anchor_price, minute, lookback, market):
@@ -184,9 +184,9 @@ def main():
     news_by_symbol={n['symbol']:n for n in news['companies']}
     rows_out=[{'symbol':c['symbol'],'name':c['name'],'headlines':news_by_symbol.get(c['symbol'],{}).get('headlines',[]),'forecasts':[],'newsState':news_by_symbol.get(c['symbol'],{}).get('state','unavailable')} for c in training_companies]
     lookup={r['symbol']:r for r in rows_out};metrics=[]
-    maximum=max(1,min(365,int(dataset.get('availableLookback',365))))
-    windows=list(range(1,maximum+1))
-    training_windows=[7,10,14,20,30,60,90,180,365]
+    maximum=365
+    windows=[365]
+    training_windows=[365]
     records=[]
     for company in training_companies:
         for index,window in enumerate(training_windows):
@@ -230,7 +230,7 @@ def main():
         with (directory/f'{window}.json').open('w',encoding='utf-8') as output:
             json.dump({'reportId':dataset['reportId'],'lookback':window,'rows':table_rows},output,allow_nan=False)
         if window==maximum or window%30==0:print(f'Wrote {window}/{maximum} history periods for {len(universe)} stocks',flush=True)
-    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['Held-out metrics pool multiple history-window lengths; they are not independent tests of every possible user-selected period.','Historical tests use the current top-25 cohort, not point-in-time screener membership. All additional tickers in the full scan use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
+    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['All prediction features use the past 365 calendar days, independent of screener display filters.','Historical tests use the current top-25 cohort, not point-in-time screener membership. All additional tickers in the full scan use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
     with open(sys.argv[3],'w',encoding='utf-8') as output:json.dump(result,output,allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 

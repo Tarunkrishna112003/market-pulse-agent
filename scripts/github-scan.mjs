@@ -4,7 +4,7 @@ import {publicUniverse} from '../lib/public-market.mjs';
 import {provider,scanStock,dates,makeReport} from '../lib/screener.mjs';
 import {normalizeFilters} from '../lib/filters.mjs';
 import {csv,summaryRows} from '../lib/csv-report.mjs';
-const filters=normalizeFilters({lookbackDays:Number(process.env.LOOKBACK_DAYS||365),minMarketCap:Number(process.env.MIN_CAP_B||20)*1e9,maxMarketCap:Number(process.env.MAX_CAP_B||100)*1e9,minAverage:Number(process.env.MIN_MOVE||5),maxAverage:process.env.MAX_MOVE?Number(process.env.MAX_MOVE):null});
+const filters=normalizeFilters({lookbackDays:Number(process.env.LOOKBACK_DAYS||365),minMarketCap:Number(process.env.MIN_CAP_B||20)*1e9,maxMarketCap:Number(process.env.MAX_CAP_B||200)*1e9,minAverage:Number(process.env.MIN_MOVE||5),maxAverage:process.env.MAX_MOVE?Number(process.env.MAX_MOVE):null});
 const window=dates(new Date(),filters.lookbackDays),key=process.env.FMP_API_KEY;
 let listing;
 try{listing=await publicUniverse({all:true})}catch{if(!key)throw Error('NASDAQ / NYSE discovery unavailable and FMP key not configured');listing=(await Promise.all(['NASDAQ','NYSE'].map(exchange=>provider('company-screener',{exchange,isEtf:false,isFund:false,isActivelyTrading:true,limit:10000},key).then(rows=>{if(!rows.length||rows.length>=10000)throw Error(exchange+' universe unavailable or truncated');return rows.map(s=>({...s,exchangeShortName:exchange}))})))).flat();if(!listing.length)throw Error('FMP universe unavailable or truncated');listing=listing.filter(s=>!s.isEtf&&!s.isFund).map(s=>({...s,_source:'fmp',marketCapAsOf:new Date().toISOString()}));}

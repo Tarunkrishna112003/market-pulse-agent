@@ -27,7 +27,7 @@ test('no history triggers initial scan and malformed timestamps fail explicitly'
 test('due check dispatches the real scanner with public filters',async()=>{
  const calls=[];
  const result=await triggerDueScan({repository:'owner/repo',token:'fixture',now:Date.parse(completed)+threeHours,fetchImpl:async(url,options)=>{calls.push({url,options});return calls.length===1?{ok:true,json:async()=>({workflow_runs:[success]})}:{ok:true,status:204}}});
- assert.equal(result.triggered,true);assert.equal(calls.length,2);assert.match(calls[1].url,/scan-and-publish.yml\/dispatches$/);assert.equal(calls[1].options.method,'POST');assert.deepEqual(JSON.parse(calls[1].options.body),{ref:'main',inputs:{lookback_days:'365',min_cap_b:'20',max_cap_b:'100',min_move:'0',max_move:'5'}});
+ assert.equal(result.triggered,true);assert.equal(calls.length,2);assert.match(calls[1].url,/scan-and-publish.yml\/dispatches$/);assert.equal(calls[1].options.method,'POST');assert.deepEqual(JSON.parse(calls[1].options.body),{ref:'main',inputs:{lookback_days:'365',min_cap_b:'20',max_cap_b:'200',min_move:'0',max_move:'5'}});
 });
 test('not-due check never dispatches and API errors do not start blind scans',async()=>{
  let calls=0;
