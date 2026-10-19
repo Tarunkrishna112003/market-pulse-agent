@@ -67,8 +67,24 @@ movement, descending, selects up to 25 stocks and attaches their one-year-model
 predictions for the next session's open-to-close percentage. This is the existing
 screener movement measure, not statistical variance.
 
-The first published report for each closing date is preserved. The latest JSON,
-Markdown and CSV reports are available from the dashboard. Dated copies are saved
+The first published report for each closing date is preserved. The JSON, Markdown and CSV reports remain published as data exports. The
+dashboard now links directly to the simple Testing results comparison page. Dated copies are saved
 as GitHub Actions artifacts for 90 days. Intraday publications preserve the previous
 closing report. A report records source failures and leaves unavailable forecasts
 blank rather than substituting zero.
+
+## One-week testing results
+
+The Testing results button opens a fixed-cohort test for October 19–23, 2026.
+The 25 stocks are copied once from the latest published daily report. A morning
+update reads the already-public one-year forecast feed and saves the first eligible
+prediction for that same trading day before 6:00 AM America/Los_Angeles. It records
+when that value was observed publicly, and never replaces it with a later forecast.
+Missing the cutoff is recorded as a miss, even if a later prediction exists.
+
+Morning publishing checks run at :05 and :40 during 12:00–14:59 UTC, covering both
+Pacific offsets. A fresh full scan is also scheduled at 11:05 UTC, ahead of the
+cutoff. Closing comparisons update at 21:55 UTC and after ordinary publications,
+using actual same-day open and close prices. GitHub schedules can be delayed;
+missed cutoffs are not concealed or backfilled. The page compares saved percentage,
+actual percentage, direction and absolute percentage-point error.

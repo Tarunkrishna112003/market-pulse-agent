@@ -1,9 +1,15 @@
 name: Publish dashboard design
 on:
+  schedule:
+    # Morning snapshots in both Pacific offsets, and an after-close comparison.
+    - cron: '5,40 12-14 * * 1-5'
+    - cron: '55 21 * * 1-5'
   push:
     branches: [main]
     paths:
       - 'github-pages/**'
+      - 'lib/testing-results.mjs'
+      - 'scripts/testing-results.mjs'
       - 'lib/daily-report.mjs'
       - 'scripts/daily-report.mjs'
       - 'lib/filters.mjs'
@@ -44,7 +50,7 @@ jobs:
         with:
           node-version: '22'
       - name: Verify public dashboard
-        run: node --test scripts/daily-report.test.mjs scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
+        run: node --test scripts/testing-results.test.mjs scripts/daily-report.test.mjs scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/public-dashboard.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs
       - name: Keep latest published report and update dashboard assets
         run: |
           mkdir -p public-site
@@ -52,7 +58,7 @@ jobs:
             curl --fail --retry 3 --silent --show-error "https://tarunkrishna112003.github.io/market-pulse-agent/$file?deploy=${GITHUB_RUN_ID}" --output "public-site/$file"
           done
           node --input-type=module -e "import {readFileSync} from 'node:fs'; const d=JSON.parse(readFileSync('public-site/data.json','utf8')); if(!d.report || !Array.isArray(d.stocks)) throw Error('Invalid published scan');"
-          cp github-pages/index.html github-pages/app.js github-pages/style.css github-pages/stock.html github-pages/stock.js public-site/
+          cp github-pages/index.html github-pages/app.js github-pages/style.css github-pages/stock.html github-pages/stock.js github-pages/testing.html github-pages/testing.js public-site/
           cp lib/filters.mjs lib/csv-report.mjs lib/stock-history.mjs lib/trading-calendar.mjs public-site/
           touch public-site/.nojekyll
           node --check public-site/app.js
@@ -65,11 +71,13 @@ jobs:
         run: |
           git diff --name-only HEAD^ HEAD > /tmp/forecast-changed-files.txt
           refresh="$FORCE_REFRESH"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
           while IFS= read -r changed_file; do
             case "$changed_file" in
               scripts/ml-prediction.py|scripts/forecast_models.py|scripts/prediction-agent.mjs|scripts/news-sentiment.py|lib/prediction.mjs|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/trading-calendar.mjs|.github/actions/prediction-agent/*) refresh=true ;;
             esac
           done < /tmp/forecast-changed-files.txt
+          fi
           echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
       - name: Preserve saved forecasts for display-only updates
         if: steps.forecast_changes.outputs.refresh == 'false'
@@ -83,6 +91,8 @@ jobs:
         uses: ./.github/actions/prediction-agent
       - name: Prepare or preserve daily closing report
         run: node scripts/daily-report.mjs
+      - name: Update next-week testing results
+        run: node scripts/testing-results.mjs
       - name: Archive daily prediction report
         uses: actions/upload-artifact@v4
         with:

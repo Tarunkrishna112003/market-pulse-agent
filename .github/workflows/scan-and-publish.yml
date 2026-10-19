@@ -3,6 +3,8 @@ on:
   schedule:
     # 21:35 UTC is after the US close in both daylight and standard time.
     - cron: '35 21 * * 1-5'
+    # Refresh forecasts well before the 6 AM Pacific testing cutoff.
+    - cron: '5 11 * * 1-5'
   workflow_dispatch:
     inputs:
       lookback_days:
@@ -39,7 +41,7 @@ jobs:
           node-version: '22'
       - id: session
         run: |
-          node --input-type=module -e "import {appendFileSync} from 'node:fs';import {easternSessionClock,tradingDay,sessionExpired} from './lib/trading-calendar.mjs';const clock=easternSessionClock();const run=process.env.GITHUB_EVENT_NAME!=='schedule'||tradingDay(clock.date)&&sessionExpired(clock.date);appendFileSync(process.env.GITHUB_OUTPUT,'run_scan='+run+'\n');"
+          node --input-type=module -e "import {appendFileSync} from 'node:fs';import {easternSessionClock,tradingDay,sessionExpired} from './lib/trading-calendar.mjs';const clock=easternSessionClock();const run=process.env.GITHUB_EVENT_NAME!=='schedule'||tradingDay(clock.date)&&(sessionExpired(clock.date)||clock.minute<540);appendFileSync(process.env.GITHUB_OUTPUT,'run_scan='+run+'\n');"
   scan:
     needs: session
     if: needs.session.outputs.run_scan == 'true'
@@ -52,7 +54,7 @@ jobs:
         with:
           node-version: '22'
       - name: Validate screener
-        run: node --test scripts/daily-report.test.mjs scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/screener.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
+        run: node --test scripts/testing-results.test.mjs scripts/daily-report.test.mjs scripts/full-prediction.test.mjs scripts/supervised-data.test.mjs scripts/prediction.test.mjs scripts/screener.test.mjs scripts/stock-history.test.mjs scripts/price-news.test.mjs scripts/filters.test.mjs scripts/scan-status.test.mjs scripts/research.test.mjs scripts/github-scan.test.mjs scripts/public-dashboard.test.mjs
       - name: Fresh full-universe scan
         run: node scripts/github-scan.mjs
         env:
@@ -66,6 +68,8 @@ jobs:
         uses: ./.github/actions/prediction-agent
       - name: Prepare daily top-25 closing report
         run: node scripts/daily-report.mjs
+      - name: Update next-week testing results
+        run: node scripts/testing-results.mjs
       - name: Archive daily prediction report
         uses: actions/upload-artifact@v4
         with:
