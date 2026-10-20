@@ -10,7 +10,7 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
-MODEL_VERSION = 'annual-open-to-close-v7'
+MODEL_VERSION = 'annual-open-to-close-v9-direction-boosted'
 FEATURES = ['last_return','mean_return','volatility','momentum','downside_volatility','range','position','volume_ratio','quote_vs_previous','minutes_to_close','market_return','market_momentum','is_preopen','calendar_days',*[f'return_lag_{i}' for i in range(5,0,-1)],'news_tone','news_tone_7d','news_present']
 
 def feature_vector(company, anchor_date, anchor_price, minute, lookback, market):
@@ -90,65 +90,46 @@ def time_partitions(rows):
 
 def fit_window(rows,current,lookback):
     import numpy as np
-    import os
     import joblib
-    from sklearn.base import clone
-    from sklearn.ensemble import ExtraTreesRegressor,HistGradientBoostingRegressor,RandomForestRegressor,VotingRegressor
-    from forecast_models import LSTMRegressor,MathematicalForecast
-    from sklearn.linear_model import Ridge
-    from sklearn.neural_network import MLPRegressor
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import RobustScaler
-    from sklearn.exceptions import ConvergenceWarning
-    warnings.filterwarnings('ignore', category=ConvergenceWarning)
-    selection,calibration,test,dates=time_partitions(rows)
-    candidates={'ridge':make_pipeline(RobustScaler(),Ridge(alpha=100)), 'extra_trees':ExtraTreesRegressor(n_estimators=100,max_depth=7,min_samples_leaf=30,n_jobs=2,random_state=42), 'boosted_trees':HistGradientBoostingRegressor(loss='absolute_error',max_iter=100,max_leaf_nodes=15,min_samples_leaf=30,l2_regularization=10,early_stopping=False,random_state=42), 'neural_network':make_pipeline(RobustScaler(),MLPRegressor(hidden_layer_sizes=(32,16),alpha=10,max_iter=200,early_stopping=False,random_state=42))}
-    candidates['random_forest']=RandomForestRegressor(n_estimators=150,max_depth=8,min_samples_leaf=20,max_features=0.8,n_jobs=2,random_state=42)
-    candidates['lstm']=LSTMRegressor()
-    candidates['mathematical_formula']=MathematicalForecast(alpha=100)
-    # Equal weights are fixed before validation; compare the combination against each component.
-    candidates['rf_lstm_math_ensemble']=VotingRegressor([(name,candidates[name]) for name in ['random_forest','lstm','mathematical_formula']],weights=[1,1,1])
-    select_dates=sorted({r['date'] for r in selection})
-    blocks=[select_dates[max(0,len(select_dates)-24+i*8):len(select_dates)-16+i*8] for i in range(3)]
-    news_eligible=sum(r['x'][-1] for r in selection)>=100 and len({r['date'] for r in selection if r['x'][-1]})>=10
-    variants=['prices','prices_and_news'] if news_eligible else ['prices']
-    def arrays(records,variant):
-        x=np.array([r['x'] if variant=='prices_and_news' else r['x'][:-3] for r in records],dtype=float);y=np.array([r['y'] for r in records],dtype=float);return x,y
-    scores=[]
-    for variant in variants:
-        for name,model in candidates.items():
-            errors=[]
-            try:
-                for block in blocks:
-                    if not block:continue
-                    train=[r for r in selection if r['date']<block[0] and r['targetDate']<block[0]]
-                    valid=[r for r in selection if r['date'] in block]
-                    if len(train)<100 or len(valid)<20:continue
-                    x,y=arrays(train,variant);v,truth=arrays(valid,variant);fitted=clone(model).fit(x,y);pred=fitted.predict(v)
-                    errors.extend(np.abs(np.expm1(pred)*100-np.expm1(truth)*100).tolist())
-                if errors:scores.append({'model':name,'features':variant,'cvMAE':float(np.mean(errors))})
-            except Exception as error:
-                scores.append({'model':name,'features':variant,'error':str(error)[:200]})
-    valid_scores=[s for s in scores if 'cvMAE' in s and math.isfinite(s['cvMAE'])]
-    if not valid_scores:raise ValueError('No candidate completed chronological validation')
-    best=min(valid_scores,key=lambda s:s['cvMAE']);variant=best['features'];model=candidates[best['model']]
-    x,y=arrays(selection,variant);cal_model=clone(model).fit(x,y);cx,cy=arrays(calibration,variant);residual=cy-cal_model.predict(cx)
-    low=float(np.quantile(residual,0.1));high=float(np.quantile(residual,0.9))
-    test_start=min(r['date'] for r in test)
-    train_before_test=[r for r in rows if r['date']<test_start and r['targetDate']<test_start]
-    x,y=arrays(train_before_test,variant);frozen=clone(model).fit(x,y);tx,ty=arrays(test,variant);tp=frozen.predict(tx)
-    actual=np.expm1(ty)*100;predicted=np.expm1(tp)*100
-    mae=float(np.mean(np.abs(predicted-actual)));baseline=float(np.mean(np.abs(actual)));direction=float(np.mean(np.sign(tp)==np.sign(ty)));coverage=float(np.mean((ty>=tp+low)&(ty<=tp+high)))
-    passed=mae<baseline*0.98 and direction>0.52 and coverage>=0.65
-    metric={'returnBasis':'open-to-close','model':best['model'],'features':variant,'trainingRows':len(rows),'testSamples':len(test),'testTradingDates':len({r['targetDate'] for r in test}),'testStart':min(r['date'] for r in test),'testEnd':max(r['targetDate'] for r in test),'meanAbsoluteError':mae,'naiveMeanAbsoluteError':baseline,'directionAccuracy':direction,'intervalCoverage':coverage,'validationPassed':passed,'newsTrainingAvailable':news_eligible,'candidates':scores,'calibrationSamples':len(calibration)}
-    allx,ally=arrays(rows,variant);final=clone(model).fit(allx,ally);forecasts={}
-    os.makedirs('prediction-models',exist_ok=True)
-    metric['algorithm']='Choose the lowest chronological validation MAE among individual models and the RF/LSTM/math ensemble; evaluate once on untouched final sessions.'
-    metric['ensembleWeights']={'random_forest':1/3,'lstm':1/3,'mathematical_formula':1/3}
-    equation_model=final if best['model']=='mathematical_formula' else final.named_estimators_['mathematical_formula'] if best['model']=='rf_lstm_math_ensemble' else None
-    if equation_model is not None:metric['mathematicalEquation']=equation_model.equation(FEATURES if variant=='prices_and_news' else FEATURES[:-3])
-    joblib.dump({'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],'calibrationResidualQuantiles':[low,high],'metrics':metric,'modelVersion':MODEL_VERSION,'returnBasis':'open-to-close'},f'prediction-models/{lookback}-day-model.joblib')
-    bundle={'model':final,'metrics':metric,'calibrationResidualQuantiles':[low,high]}
+    from forecast_benchmark import evaluate, summary, choose, before, arrays, candidates, fit_model
+    from forecast_models import WeightedForecast, GatedAttentionRegressor
+    from pathlib import Path
+    folds,records=evaluate(rows)
+    result=summary(records)
+    # Freeze the release decision using outer results; final fitting uses available history.
+    passed=(result['meanAbsoluteError']<min(result['naiveMeanAbsoluteError'],result['medianMeanAbsoluteError'])*.98
+            and result['directionAccuracy']>.52 and result['intervalCoverage']>=.65)
+    final,selection=choose(rows)
+    dates=sorted({r['targetDate'] for r in rows});cal_start=dates[-10]
+    calibration=[r for r in rows if r['targetDate']>=cal_start];train=before(rows,min(r['date'] for r in calibration))
+    weights=selection['ensembleWeights'];registry=candidates();variant=selection['features']
+    calibration_model=WeightedForecast([fit_model(registry[name],train,variant) for name in weights],list(weights.values()))
+    cx,cy=arrays(calibration,variant);residual=cy-calibration_model.predict(cx)
+    low,high=[float(v) for v in np.quantile(residual,[.1,.9])]
+    # Repeat selected neural components with independent seeds; retain seed diagnostics.
+    seed_checks=[]
+    for name in weights:
+        if isinstance(registry[name],GatedAttentionRegressor):
+            predictions=[]
+            for seed in (42,43,44):
+                fitted=fit_model(registry[name].set_params(random_state=seed),train,variant)
+                predictions.append(fitted.predict(cx))
+            seed_checks.append({'model':name,'seeds':[42,43,44],
+                'calibrationMAEBySeed':[float(np.mean(np.abs(np.expm1(p)*100-np.expm1(cy)*100))) for p in predictions],
+                'meanPredictionStdPoints':float(np.mean(np.std(np.expm1(predictions)*100,axis=0)))})
+    metric={'returnBasis':'open-to-close',**selection,**result,'trainingRows':len(rows),
+            'testSamples':len(records),'testStart':min(r['date'] for r in records),
+            'testEnd':max(r['targetDate'] for r in records),'validationPassed':passed,
+            'calibrationSamples':len(calibration),'seedStability':seed_checks,
+            'benchmarkFolds':folds,'algorithm':'Nested purged target-date walk-forward benchmark; inner candidate tuning and nonnegative ensemble selection.',
+            'benchmarkScope':'Current training cohort; mixed existing morning/intraday observations; not point-in-time universe validation.',
+            'intervalMethod':'Earlier-fit residual quantiles, evaluated after refitting; empirical coverage reported, no coverage guarantee.'}
+    directory=Path('prediction-models');directory.mkdir(exist_ok=True)
+    bundle={'model':final,'features':FEATURES if variant=='prices_and_news' else FEATURES[:-3],
+            'metrics':metric,'calibrationResidualQuantiles':[low,high],'calibrationResiduals':residual.tolist(),
+            'modelVersion':MODEL_VERSION,'returnBasis':'open-to-close'}
+    joblib.dump(bundle,directory/f'{lookback}-day-model.joblib')
+    (directory/'chronological-benchmark.json').write_text(json.dumps({'modelVersion':MODEL_VERSION,'metrics':metric,'predictions':records},allow_nan=False))
     return predict_records(bundle,current,lookback),metric
 
 
@@ -157,7 +138,8 @@ def predict_records(bundle,current,lookback):
     final=bundle['model'];metric=bundle['metrics'];variant=metric['features']
     low,high=bundle['calibrationResidualQuantiles'];passed=metric['validationPassed'];forecasts={}
     keys=list(current)
-    vectors=np.asarray([current[key]['x'] if variant=='prices_and_news' else current[key]['x'][:-3] for key in keys],dtype=float)
+    from forecast_benchmark import feature_array
+    vectors=feature_array([current[key]['x'] for key in keys],variant) if keys else np.empty((0,0))
     if keys:
         # Batch inference runs every tree on every stock/window without per-row thread overhead.
         values=final.predict(vectors)
@@ -169,7 +151,7 @@ def predict_records(bundle,current,lookback):
         record=current[symbol];value=float(values[index]);no_news=float(neutral_values[index]);base=record['basePrice'];percent=float(np.expm1(value)*100)
         if not all(math.isfinite(v) for v in [value,percent]) or abs(value)>1:
             forecasts[symbol]={'state':'no-signal','lookback':record.get('lookback',lookback),'reason':'Model output outside supported range'};continue
-        forecasts[symbol]={'state':'estimated','forecastModel':'supervised','returnBasis':'open-to-close','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':False}
+        forecasts[symbol]={'state':'estimated','forecastModel':'supervised','returnBasis':'open-to-close','lookback':record.get('lookback',lookback),'sessions':record['sessions'],'baseDate':record['baseDate'],'quotePrice':base,'quoteAsOf':record['quoteAsOf'],'targetDate':record['targetDate'],'generatedAt':record['generatedAt'],'estimatedPercent':percent,'direction':'positive' if percent>0.05 else 'negative' if percent< -0.05 else 'neutral','priceOnlyPercent':float(np.expm1(no_news)*100),'newsContributionPoints':percent-float(np.expm1(no_news)*100),'newsLabel':'learned news features' if variant=='prices_and_news' else 'context only; price model selected','interval':{'level':0.8,'lowerPercent':float(np.expm1(value+low)*100),'upperPercent':float(np.expm1(value+high)*100)},'validationPassed':passed,'modelQuality':metric,'newsCount':record.get('newsCount',0),'newsFeatureCutoff':record.get('newsFeatureCutoff'),'experimental':not passed,'confidenceStatus':'validated' if passed else 'low-confidence','upProbability':float(np.mean(np.asarray(bundle['calibrationResiduals'])> -value)) if bundle.get('calibrationResiduals') else None}
     return forecasts
 
 def main():
@@ -194,15 +176,16 @@ def main():
             records.extend(r for r in candidates if datetime.fromisoformat(r['date']).toordinal()%len(training_windows)==index)
     bundle=None;training_error=None
     try:
-        _,metric=fit_window(records,{},'adaptive')
-        metrics.append({'lookback':0,'adaptive':True,**metric})
-        bundle=joblib.load('prediction-models/adaptive-day-model.joblib')
+        from forecast_runtime import fit_runtime
+        cutoff=(now.astimezone(NY).date()+timedelta(days=1)).isoformat()
+        bundle,builder=fit_runtime(records,dataset['companies'],dataset['market'],cutoff)
+        metrics.append({'lookback':0,'adaptive':True,**bundle['metrics']})
     except Exception as error:
         training_error=str(error)[:300]
         metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':training_error})
     universe=dataset.get('universe') or [{'symbol':c['symbol'],'name':c['name']} for c in dataset['companies']]
     directory=Path(sys.argv[3]).parent/'predictions';directory.mkdir(parents=True,exist_ok=True)
-    compact_keys=['state','forecastModel','returnBasis','lookback','targetDate','estimatedPercent','reason']
+    compact_keys=['confidenceStatus','validationPassed','upProbability','interval','state','forecastModel','returnBasis','lookback','targetDate','estimatedPercent','reason']
     for window in windows:
         current={};forecasts={}
         for company in dataset['companies']:
@@ -215,7 +198,8 @@ def main():
                 forecasts[symbol]={'state':'insufficient-history','lookback':window,'reason':'Insufficient complete history for the selected calendar-day period'};continue
             current[symbol]={**context,'symbol':symbol,'lookback':window,'x':vector,'generatedAt':dataset['generatedAt'],'sessions':len([d for d in company['daily'] if d['date']<inference_date and d['date']>=(datetime.fromisoformat(inference_date)-timedelta(days=window)).date().isoformat()]),'newsCount':len(news_by_symbol.get(symbol,{}).get('headlines',[])),'newsFeatureCutoff':'prior completed UTC day'}
         if bundle is not None:
-            forecasts.update(predict_records(bundle,current,window))
+            from forecast_runtime import predict_runtime
+            forecasts.update(predict_runtime(bundle,builder,current,window))
         else:
             forecasts.update({symbol:{'state':'no-signal','lookback':window,'reason':training_error} for symbol in current})
         table_rows=[]
@@ -230,7 +214,7 @@ def main():
         with (directory/f'{window}.json').open('w',encoding='utf-8') as output:
             json.dump({'reportId':dataset['reportId'],'lookback':window,'rows':table_rows},output,allow_nan=False)
         if window==maximum or window%30==0:print(f'Wrote {window}/{maximum} history periods for {len(universe)} stocks',flush=True)
-    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['All prediction features use the past 365 calendar days, independent of screener display filters.','Historical tests use the current top-25 cohort, not point-in-time screener membership. All additional tickers in the full scan use the pooled model; their individual performance is not separately validated and company news may be missing.','GDELT archive data is reconstructed and may have revisions; forward validation remains necessary.','Current headline sentiment is context only; numerical news features use historical GDELT tone available before the feature cutoff.']}
+    result={'returnBasis':'open-to-close','modelVersion':MODEL_VERSION,'supportedLookbacks':windows,'rows':rows_out,'trainedModels':metrics,'trainingErrors':dataset['errors'],'dataCaveats':['All prediction features use the past 365 calendar days, independent of screener display filters.','Historical tests use the current top-25 cohort, not point-in-time screener membership. All additional tickers in the full scan use the pooled model; their individual performance is not separately validated and company news may be missing.','The direction-boosted model is experimental; forward validation remains necessary.','News is context only; the direction-boosted prediction model uses price features.']}
     with open(sys.argv[3],'w',encoding='utf-8') as output:json.dump(result,output,allow_nan=False)
     print(json.dumps({'trainedModels':metrics,'rows':len(rows_out)}))
 

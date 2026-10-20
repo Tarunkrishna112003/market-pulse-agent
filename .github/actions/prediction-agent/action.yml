@@ -33,6 +33,7 @@ runs:
         OPENBLAS_NUM_THREADS: '2'
       run: |
         python -m unittest discover -s scripts -p 'ml_prediction_test.py'
+        python -m unittest discover -s scripts -p 'forecast_runtime_test.py'
         python scripts/ml-prediction.py public-site/prediction-training.json public-site/prediction-sentiment.json public-site/prediction-trained.json
     - name: Save fitted models and training diagnostics
       uses: actions/upload-artifact@v4

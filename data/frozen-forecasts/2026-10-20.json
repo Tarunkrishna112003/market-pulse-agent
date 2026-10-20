@@ -1,0 +1,322 @@
+{
+  "targetDate": "2026-10-20",
+  "generatedAt": "2026-10-20T06:11:05.714567+00:00",
+  "morningCutoff": "2026-10-20T13:00:00+00:00",
+  "priceHistoryDownloadedAt": "2026-10-20T05:02:23.514Z",
+  "lastTrainingTargetDate": "2026-10-19",
+  "candidate": "direction_boosted",
+  "status": "Experimental local forward comparison; no outcomes known or included.",
+  "modelSettingsSelectedAsOf": "2026-10-15",
+  "cohort": "Same fixed 25 stocks from the saved weekly test",
+  "dataScope": "Price-only; prior completed sessions",
+  "inputSHA256": {
+    "work/backtest-2026-08-19_2026-10-19/historical-data.json": "17cff134933a634b34abbb24417b9ee2e0dd88842c5cd4182734a05249883890",
+    "work/backtest-2026-08-19_2026-10-19/market.json": "58f6100bdc8772c93be46375db88a4331b664b1c98ec5ed0bee566b602cff399",
+    "work/forecast-research-2026-08-19_2026-10-19/converged/plan.json": "89032276522b9072b8883c40977da6902aa6527117592ba7266f2f49929525a5",
+    "scripts/forecast_features.py": "872883610c726529194f110a49236debf7ff53ec5d6774a5d92897dabe44ef82",
+    "scripts/forecast_research.py": "1b91e0e399c90d3d06755e7476400834b094afb8426016043c609177dbda2d60",
+    "scripts/freeze-forward-comparison.py": "cf151eabe80102de7d17709a7afa95bd95916ac96c3a7bf6af30e6a81fc8a405"
+  },
+  "entries": [
+    {
+      "symbol": "CRDO",
+      "candidatePercent": 0.3243701451336803,
+      "candidateUpProbability": 0.5409724105245949,
+      "candidate80Range": {
+        "lowerPercent": -4.9017107278768375,
+        "upperPercent": 5.810018687419081
+      },
+      "v7Percent": 0.2645627298272883,
+      "v8Percent": 0.1801990973829244,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "ALAB",
+      "candidatePercent": 0.30364997601326504,
+      "candidateUpProbability": 0.5392528658846457,
+      "candidate80Range": {
+        "lowerPercent": -4.798847875033283,
+        "upperPercent": 5.664857881145716
+      },
+      "v7Percent": 0.26455867939341937,
+      "v8Percent": -0.09600152169661887,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "CRWV",
+      "candidatePercent": 0.36973312825680466,
+      "candidateUpProbability": 0.5417876119824863,
+      "candidate80Range": {
+        "lowerPercent": -5.475264888603589,
+        "upperPercent": 6.533876812058824
+      },
+      "v7Percent": 0.264582567513694,
+      "v8Percent": 0.6642445701876157,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "RKLB",
+      "candidatePercent": 0.22923393420900373,
+      "candidateUpProbability": 0.5401559424989167,
+      "candidate80Range": {
+        "lowerPercent": -3.5840950561434317,
+        "upperPercent": 4.185489294887437
+      },
+      "v7Percent": 0.2645603822193197,
+      "v8Percent": 0.3860603687616142,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "CRCL",
+      "candidatePercent": 0.3766407602486745,
+      "candidateUpProbability": 0.544138182453847,
+      "candidate80Range": {
+        "lowerPercent": -5.2814259725324275,
+        "upperPercent": 6.325711267290029
+      },
+      "v7Percent": 0.26455735909480016,
+      "v8Percent": 0.016592402140252527,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "MRNA",
+      "candidatePercent": 0.3055268663778909,
+      "candidateUpProbability": 0.5290883299466105,
+      "candidate80Range": {
+        "lowerPercent": -6.040806886514308,
+        "upperPercent": 7.10322572995109
+      },
+      "v7Percent": 0.2645671753442607,
+      "v8Percent": 1.4768772746029628,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "COHR",
+      "candidatePercent": 0.3235685813287726,
+      "candidateUpProbability": 0.5392703786290611,
+      "candidate80Range": {
+        "lowerPercent": -5.099357533082671,
+        "upperPercent": 6.040438473756494
+      },
+      "v7Percent": 0.26456308962032976,
+      "v8Percent": 0.010713576073542468,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "SMCI",
+      "candidatePercent": 0.2663566297424422,
+      "candidateUpProbability": 0.5403157966955477,
+      "candidate80Range": {
+        "lowerPercent": -4.130173115528925,
+        "upperPercent": 4.853625829698878
+      },
+      "v7Percent": 0.26456047010740247,
+      "v8Percent": 0.05984294896573941,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "MSTR",
+      "candidatePercent": 0.270083533114372,
+      "candidateUpProbability": 0.5402097708217604,
+      "candidate80Range": {
+        "lowerPercent": -4.203434485595924,
+        "upperPercent": 4.942953135485592
+      },
+      "v7Percent": 0.26455889496615675,
+      "v8Percent": 0.3177204634598927,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "WDC",
+      "candidatePercent": 0.22920387815434495,
+      "candidateUpProbability": 0.5395474779565216,
+      "candidate80Range": {
+        "lowerPercent": -3.5910071804456183,
+        "upperPercent": 4.1897494473640045
+      },
+      "v7Percent": 0.2645616841356762,
+      "v8Percent": 0.21149715564711813,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "TSEM",
+      "candidatePercent": 0.22624640223204012,
+      "candidateUpProbability": 0.538073499367502,
+      "candidate80Range": {
+        "lowerPercent": -3.7083759769208893,
+        "upperPercent": 4.3132886851010195
+      },
+      "v7Percent": 0.2645612829433935,
+      "v8Percent": 0.01445564100118937,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "CLS",
+      "candidatePercent": 0.2721450547616138,
+      "candidateUpProbability": 0.5397238277894462,
+      "candidate80Range": {
+        "lowerPercent": -4.240531878837389,
+        "upperPercent": 4.984655107442937
+      },
+      "v7Percent": 0.2645607196193462,
+      "v8Percent": -0.017086607686814366,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "STX",
+      "candidatePercent": 0.2766065787126368,
+      "candidateUpProbability": 0.5399252535849163,
+      "candidate80Range": {
+        "lowerPercent": -4.308245300656446,
+        "upperPercent": 5.069528116963715
+      },
+      "v7Percent": 0.2645620554215613,
+      "v8Percent": 0.12453222063623431,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "CIEN",
+      "candidatePercent": 0.3748366380320095,
+      "candidateUpProbability": 0.5391553942277385,
+      "candidate80Range": {
+        "lowerPercent": -5.923969265611289,
+        "upperPercent": 7.079898887630148
+      },
+      "v7Percent": 0.2645628996094917,
+      "v8Percent": 0.16667713948475307,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "VG",
+      "candidatePercent": 0.20773712752314458,
+      "candidateUpProbability": 0.5392309490587065,
+      "candidate80Range": {
+        "lowerPercent": -3.3146419183775007,
+        "upperPercent": 3.848623297417437
+      },
+      "v7Percent": 0.26456105467913166,
+      "v8Percent": 0.08607772945539001,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "TER",
+      "candidatePercent": 0.200256025753527,
+      "candidateUpProbability": 0.5377912109496016,
+      "candidate80Range": {
+        "lowerPercent": -3.2934590042112286,
+        "upperPercent": 3.811355058265863
+      },
+      "v7Percent": 0.2645622607083359,
+      "v8Percent": 0.059505346191893294,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "COIN",
+      "candidatePercent": 0.26668191509676115,
+      "candidateUpProbability": 0.5405338510602243,
+      "candidate80Range": {
+        "lowerPercent": -4.109177565411352,
+        "upperPercent": 4.827851461164974
+      },
+      "v7Percent": 0.26456040108362056,
+      "v8Percent": 0.2278873142196933,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "GLW",
+      "candidatePercent": 0.2198758366259013,
+      "candidateUpProbability": 0.537530665768944,
+      "candidate80Range": {
+        "lowerPercent": -3.618403585872723,
+        "upperPercent": 4.200093211685785
+      },
+      "v7Percent": 0.2645594159476843,
+      "v8Percent": 0.03870866196479196,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "SYM",
+      "candidatePercent": 0.21464432782044734,
+      "candidateUpProbability": 0.5398871029366883,
+      "candidate80Range": {
+        "lowerPercent": -3.3606882922946864,
+        "upperPercent": 3.913091104895986
+      },
+      "v7Percent": 0.26456007039516793,
+      "v8Percent": 0.20944572103174502,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "HOOD",
+      "candidatePercent": 0.2469021251009802,
+      "candidateUpProbability": 0.541246045762711,
+      "candidate80Range": {
+        "lowerPercent": -3.753444357858266,
+        "upperPercent": 4.392582879263609
+      },
+      "v7Percent": 0.2645589427929351,
+      "v8Percent": 0.17267184076107117,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "TEAM",
+      "candidatePercent": 0.2710399179775169,
+      "candidateUpProbability": 0.5422666930594128,
+      "candidate80Range": {
+        "lowerPercent": -3.882922665005961,
+        "upperPercent": 4.559579172124211
+      },
+      "v7Percent": 0.2645571938349414,
+      "v8Percent": 0.27135761489287574,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "RDDT",
+      "candidatePercent": 0.24616803758024836,
+      "candidateUpProbability": 0.5418342487931804,
+      "candidate80Range": {
+        "lowerPercent": -3.681682889020774,
+        "upperPercent": 4.306792891517166
+      },
+      "v7Percent": 0.26455954761957035,
+      "v8Percent": 0.08817625963559451,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "APP",
+      "candidatePercent": 0.2147901595877911,
+      "candidateUpProbability": 0.5391123533368513,
+      "candidate80Range": {
+        "lowerPercent": -3.4446351808727766,
+        "upperPercent": 4.004483506220912
+      },
+      "v7Percent": 0.2645587516922506,
+      "v8Percent": 0.018980875604371335,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "ENTG",
+      "candidatePercent": 0.16167125157596937,
+      "candidateUpProbability": 0.5368130673281132,
+      "candidate80Range": {
+        "lowerPercent": -2.721139691897076,
+        "upperPercent": 3.1206890618560155
+      },
+      "v7Percent": 0.26456114564593,
+      "v8Percent": 0.23992081147926136,
+      "lastInputDate": "2026-10-19"
+    },
+    {
+      "symbol": "P",
+      "candidatePercent": 0.2575237165828981,
+      "candidateUpProbability": 0.5383312474188021,
+      "candidate80Range": {
+        "lowerPercent": -4.20306890413335,
+        "upperPercent": 4.917361447913718
+      },
+      "v7Percent": 0.26455971455342736,
+      "v8Percent": 0.07057888465788595,
+      "lastInputDate": "2026-10-19"
+    }
+  ]
+}

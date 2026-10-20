@@ -1,3 +1,5 @@
+> Active as of October 20, 2026: the pipeline uses the experimental direction-boosted model (`annual-open-to-close-v9-direction-boosted`). See [forecast research](forecast-research.md#october-20-model-switch) for the current training and calibration procedure. The architecture described below documents the previous model.
+
 # Next-session prediction algorithm
 
 Every prediction uses **365 calendar days of price features**, regardless of the

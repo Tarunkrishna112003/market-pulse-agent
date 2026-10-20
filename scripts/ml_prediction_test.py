@@ -57,7 +57,21 @@ class ForecastDataTests(unittest.TestCase):
                 rows.append({'symbol':'TEST','date':day['date'],'targetDate':c['daily'][i+1]['date'],'x':x,'y':y})
         context={'x':[0.0]*len(ml.FEATURES),'basePrice':100,'baseDate':'2026-06-01','quoteAsOf':'2026-06-01T20:00:00Z','targetDate':'2026-06-02','generatedAt':'2026-06-01T21:00:00Z','sessions':20}
         context['lookback']=17;context['x'][8]=0.5;context['x'][-3]=1;context['x'][-2]=1;context['x'][-1]=1
-        predictions,metric=ml.fit_window(rows,{'TEST':context},20)
+        from unittest.mock import patch
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import RobustScaler
+        from sklearn.linear_model import Ridge
+        from forecast_models import GatedAttentionRegressor
+        import forecast_benchmark
+        # Exercise nested selection, neural fitting, blending and artifacts with bounded test settings.
+        registry={'ridge_1':make_pipeline(RobustScaler(),Ridge(alpha=1)),
+                  'ridge_100':make_pipeline(RobustScaler(),Ridge(alpha=100)),
+                  'gated_attention':GatedAttentionRegressor(epochs=3)}
+        with patch.object(forecast_benchmark,'candidates',return_value=registry):
+            predictions,metric=ml.fit_window(rows,{'TEST':context},20)
+        import joblib
+        restored=ml.predict_records(joblib.load('prediction-models/20-day-model.joblib'),{'TEST':context},20)
+        self.assertAlmostEqual(restored['TEST']['estimatedPercent'],predictions['TEST']['estimatedPercent'])
         self.assertEqual(predictions['TEST']['forecastModel'],'supervised');self.assertEqual(predictions['TEST']['lookback'],17)
         self.assertEqual(metric['features'],'prices_and_news')
         self.assertLess(metric['meanAbsoluteError'],metric['naiveMeanAbsoluteError'])
@@ -65,9 +79,19 @@ class ForecastDataTests(unittest.TestCase):
         self.assertEqual(predictions['TEST']['returnBasis'],'open-to-close')
         self.assertNotIn('projectedClose',predictions['TEST'])
         self.assertNotIn('estimatedDollar',predictions['TEST'])
-        for name in ['neural_network','random_forest','lstm','mathematical_formula','rf_lstm_math_ensemble']:
-            self.assertTrue(any(r['model']==name and 'cvMAE' in r for r in metric['candidates']),name)
-        self.assertEqual(len({r['targetDate'] for r in rows if r['date']>=metric['testStart']}),metric['testTradingDates'])
+        self.assertGreaterEqual(metric['testTradingDates'],40)
+        self.assertGreaterEqual(len(metric['benchmarkFolds']),4)
+        for fold in metric['benchmarkFolds']:
+            self.assertLess(fold['trainingTargetEnd'],fold['firstTestObservation'])
+            self.assertIn('modelComparisons',fold)
+        self.assertAlmostEqual(sum(metric['ensembleWeights'].values()),1)
+        self.assertTrue(all(v>=0 for v in metric['ensembleWeights'].values()))
+        self.assertIn('directionBrierScore',metric)
+        self.assertIn('confidenceFilters',metric)
+        self.assertIn('dailyMAEImprovement95Interval',metric)
+        self.assertEqual(predictions['TEST']['confidenceStatus'],'validated' if metric['validationPassed'] else 'low-confidence')
+        self.assertTrue(0<=predictions['TEST']['upProbability']<=1)
+
     def test_lstm_uses_ordered_sequence_and_artifact_roundtrip(self):
         import numpy as np
         import joblib
@@ -104,6 +128,8 @@ class ForecastDataTests(unittest.TestCase):
         from unittest.mock import patch
         class ConstantModel:
             def predict(self,x):return np.full(len(x),0.01)
+            def probability(self,x):return np.full(len(x),.6)
+            def predict_quantile(self,x,level):return np.full(len(x),-.02 if level<.5 else .02)
         metric={'features':'prices','validationPassed':False,'trainingRows':1000,'model':'fixture'}
         bundle={'model':ConstantModel(),'metrics':metric,'calibrationResidualQuantiles':[-0.02,0.02]}
         training=self.company(300);training['name']='Training Company'
@@ -113,7 +139,9 @@ class ForecastDataTests(unittest.TestCase):
             root=pathlib.Path(folder);dataset=root/'data.json';news=root/'news.json';output=root/'prediction-trained.json'
             dataset.write_text(json.dumps({'reportId':'year','generatedAt':'2027-01-01T00:00:00Z','availableLookback':365,'companies':[training,extra],'universe':[{'symbol':'TEST'},{'symbol':'EXTRA'},{'symbol':'MISSING'}],'market':[],'errors':[]}))
             news.write_text(json.dumps({'companies':[]}))
-            with patch.object(ml.sys,'argv',['ml',str(dataset),str(news),str(output)]),patch.object(ml,'fit_window',return_value=({},metric)),patch('joblib.load',return_value=bundle),contextlib.redirect_stdout(io.StringIO()):ml.main()
+            from unittest.mock import Mock
+            builder=Mock();builder.enrich.side_effect=lambda row:row
+            with patch.object(ml.sys,'argv',['ml',str(dataset),str(news),str(output)]),patch('forecast_runtime.fit_runtime',return_value=(bundle,builder)),contextlib.redirect_stdout(io.StringIO()):ml.main()
             result=json.loads(output.read_text());self.assertEqual(result['supportedLookbacks'],[365])
             self.assertEqual([r['symbol'] for r in result['rows']],['TEST'])
             self.assertEqual(len(result['rows'][0]['forecasts']),1)
@@ -125,6 +153,42 @@ class ForecastDataTests(unittest.TestCase):
             year=json.loads((root/'predictions/365.json').read_text())
             self.assertEqual(len(year['rows']),3)
             self.assertEqual(next(r for r in year['rows'] if r['symbol']=='MISSING')['state'],'no-signal')
+
+    def test_target_date_blocks_keep_labels_before_first_observation(self):
+        from forecast_benchmark import target_blocks,before
+        c=self.company();rows=[]
+        for i,day in enumerate(c['daily'][:-1]):
+            target=c['daily'][i+1]['date']
+            rows.extend([{'symbol':'TEST','date':day['date'],'targetDate':target},
+                         {'symbol':'TEST','date':target,'targetDate':target}])
+        for block in target_blocks(rows):
+            valid=[r for r in rows if r['targetDate'] in block]
+            train=before(rows,min(r['date'] for r in valid))
+            self.assertLess(max(r['targetDate'] for r in train),min(r['date'] for r in valid))
+            self.assertFalse({r['targetDate'] for r in train}&{r['targetDate'] for r in valid})
+
+    def test_attention_models_are_finite_and_pickleable(self):
+        import numpy as np
+        import joblib,tempfile
+        from forecast_models import GatedAttentionRegressor,ResidualMLPRegressor
+        from forecast_benchmark import candidates,fit_model
+        rng=np.random.default_rng(42);x=rng.normal(size=(180,len(ml.FEATURES)));y=.01*x[:,8]
+        for cls in (GatedAttentionRegressor,ResidualMLPRegressor):
+            model=cls(epochs=8,patience=2).fit(x[:120],y[:120],validation_data=(x[120:],y[120:]))
+            details=model.predict_details(x)
+            self.assertTrue(np.isfinite(details['return']).all())
+            self.assertTrue(((details['upProbability']>=0)&(details['upProbability']<=1)).all())
+            self.assertTrue((details['quantiles'][:,0]<=details['quantiles'][:,1]).all())
+            with tempfile.TemporaryDirectory() as folder:
+                path=pathlib.Path(folder)/'model.joblib';joblib.dump(model,path)
+                np.testing.assert_allclose(model.predict(x),joblib.load(path).predict(x))
+        # All production candidate definitions support cloning and real fitting.
+        from sklearn.base import clone
+        for name,model in candidates().items():
+            fitted=clone(model)
+            if isinstance(fitted,GatedAttentionRegressor):fitted.set_params(epochs=2)
+            fitted.fit(x,y)
+            self.assertTrue(np.isfinite(fitted.predict(x[:3])).all(),name)
 
     def test_insufficient_data_rejected(self):
         with self.assertRaises(ValueError):ml.time_partitions([])

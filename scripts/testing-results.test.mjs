@@ -47,3 +47,20 @@ test('testing page shows the saved number beside actual change and bottom button
   const html=await readFile('github-pages/index.html','utf8');assert.match(html,/href="testing.html">Testing results/);assert.ok(html.indexOf('Testing results')>html.indexOf('Report details'));
  }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}
 });
+
+test('October 20 switch uses exact frozen candidate values, preserves October 19 and prior predictions',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const {useFrozenOctober20}=await import('../lib/frozen-forecast-migration.mjs');
+ const raw=await readFile('data/frozen-forecasts/2026-10-20.json','utf8'),frozen=JSON.parse(raw);
+ const state=createTest({sessionDate:'2026-10-16',rows:frozen.entries.map(r=>({symbol:r.symbol,name:r.symbol}))});
+ state.entries[0].prediction={percent:1};state.entries[0].actual={percent:2};
+ state.entries[25].prediction={percent:.2312,modelVersion:'v7'};
+ const migrated=useFrozenOctober20(state,raw,new Date('2026-10-20T19:00:00Z'));
+ assert.deepEqual(migrated.entries.slice(0,25),state.entries.slice(0,25));
+ assert.equal(migrated.entries[25].prediction.percent,frozen.entries[0].candidatePercent);
+ assert.equal(migrated.entries[25].prediction.generatedAt,frozen.generatedAt);
+ assert.equal(migrated.entries[25].previousPredictions[0].percent,.2312);
+ assert.equal(migrated.entries[25].prediction.originallyPublic,false);
+ assert.deepEqual(useFrozenOctober20(migrated,raw,new Date('2026-10-21T19:00:00Z')),migrated);
+ assert.throws(()=>useFrozenOctober20(state,raw+' '),/integrity/);
+});
