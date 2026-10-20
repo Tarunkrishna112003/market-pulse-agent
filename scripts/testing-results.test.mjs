@@ -40,10 +40,17 @@ test('testing page shows the saved number beside actual change and bottom button
   await copyFile('github-pages/testing.js',join(dir,'testing.mjs'));
   let state=updateTest(createTest(cohort),snapshot(),[],new Date('2026-10-19T12:05:00Z'));
   state=updateTest(state,snapshot(9),[{symbol:'S0',daily:[{date:'2026-10-19',open:200,close:206}]}],new Date('2026-10-19T21:55:00Z'));
-  const nodes=new Map();for(const id of ['week','testDay','testStatus','testRows'])nodes.set(id,{value:'',children:[],append(...items){this.children.push(...items)},replaceChildren(){this.children=[]}});
-  globalThis.document={getElementById:id=>nodes.get(id),createElement:()=>({children:[],append(...items){this.children.push(...items)}})};globalThis.fetch=async()=>({ok:true,json:async()=>state});
-  await import(pathToFileURL(join(dir,'testing.mjs')).href);nodes.get('testDay').value='2026-10-19';nodes.get('testDay').onchange();
-  assert.equal(nodes.get('testRows').children.length,25);const row=nodes.get('testRows').children[0];assert.equal(row.children[1].textContent,'+2.00%');assert.equal(row.children[2].textContent,'+3.00%');assert.equal(row.children[3].textContent,'1.00');assert.equal(row.children[4].textContent,'Correct direction');
+  const nodes=new Map();for(const id of ['week','testStatus','testDays'])nodes.set(id,{value:'',children:[],append(...items){this.children.push(...items)},replaceChildren(){this.children=[]}});
+  globalThis.document={getElementById:id=>nodes.get(id),createElement:()=>({children:[],setAttribute(){},append(...items){this.children.push(...items)}})};globalThis.fetch=async()=>({ok:true,json:async()=>state});
+  await import(pathToFileURL(join(dir,'testing.mjs')).href);
+  const days=nodes.get('testDays').children;assert.equal(days.length,5);
+  assert.match(days[0].children[0].textContent,/Monday, October 19/);
+  assert.match(days[4].children[0].textContent,/Friday, October 23/);
+  for(const day of days)assert.equal(day.children[2].children[0].children[1].children.length,25);
+  const row=days[0].children[2].children[0].children[1].children[0];assert.equal(row.children[1].textContent,'+2.00%');assert.equal(row.children[2].textContent,'+3.00%');assert.equal(row.children[3].textContent,'1.00');assert.equal(row.children[4].textContent,'Correct direction');
+  assert.match(days[0].children[1].textContent,/1\/25 comparisons/);
+  assert.match(days[1].children[1].textContent,/0\/25 predictions saved/);
+  assert.equal(days[1].children[2].children[0].children[1].children[0].children[1].textContent,'—');
   const html=await readFile('github-pages/index.html','utf8');assert.match(html,/href="testing.html">Testing results/);assert.ok(html.indexOf('Testing results')>html.indexOf('Report details'));
  }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}
 });
