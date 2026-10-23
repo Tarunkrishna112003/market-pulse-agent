@@ -28,12 +28,12 @@ test('dashboard always loads annual forecasts while displayed movement filters c
   const requested=[];
   globalThis.fetch=async url=>{requested.push(String(url));let value;
    if(url==='predictions.json')value={reportId:'universe',tableFiles:[365],rows:[]};
-   else if(String(url).startsWith('predictions/')){const period=Number(String(url).match(/\/(\d+)\./)[1]);value={reportId:period===13?'wrong-scan':'universe',lookback:period,rows:[{symbol:'SMALL',lookback:period,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:nextForecastSession(),estimatedPercent:1.81,validationPassed:false}]}}
+   else if(String(url).startsWith('predictions/')){const period=Number(String(url).match(/\/(\d+)\./)[1]);value={reportId:period===13?'wrong-scan':'universe',lookback:period,rows:[{symbol:'SMALL',lookback:period,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:nextForecastSession(),estimatedPercent:1.81,estimates:{openToClose:{state:'estimated',estimatedPercent:1.81,targetDate:nextForecastSession()},closeToClose:{state:'estimated',estimatedPercent:-2.41,targetDate:nextForecastSession()}},confidenceStatus:'experimental',validationPassed:false}]}}
    else value={report:{id:'universe',filters:{minMarketCap:0,maxMarketCap:100e9,minAverage:0,maxAverage:5,lookbackDays:17},end:'2026-10-06',createdAt:'2026-10-06T20:00:00Z',scanned:1,total:1,errors:[],sources:['fixture']},stocks:[{symbol:'SMALL',name:'Outside training cohort',marketCap:1e9,price:10,history:[['2026-10-05',10,1]]}]};
    return {ok:true,json:async()=>value};
   };
   await import(pathToFileURL(join(dir,'app.mjs')).href);
-  assert.ok(requested.includes('predictions/365.json'));assert.equal(nodes.get('rows').children[0].children[4].children[2].textContent,'Low confidence · benchmark not passed');assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.81%');
+  assert.ok(requested.includes('predictions/365.json'));assert.equal(nodes.get('rows').children[0].children[4].children[2].textContent,'Close → close: -2.41%');assert.equal(nodes.get('rows').children[0].children[4].children[3].textContent,'Experimental · forward testing');assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.81%');
   nodes.get('days').value='13';nodes.get('filters').onsubmit({preventDefault(){}});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.81%');assert.equal(requested.filter(url=>url==='predictions/365.json').length,1);assert.ok(!requested.includes('predictions/13.json'));
  }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}

@@ -1,10 +1,5 @@
 name: Scan NASDAQ and NYSE and publish dashboard
 on:
-  schedule:
-    # 21:35 UTC is after the US close in both daylight and standard time.
-    - cron: '35 21 * * 1-5'
-    # Refresh forecasts well before the 6 AM Pacific testing cutoff.
-    - cron: '5 11 * * 1-5'
   workflow_dispatch:
     inputs:
       lookback_days:

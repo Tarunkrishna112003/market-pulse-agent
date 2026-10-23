@@ -1,6 +1,6 @@
 import {normalizeFilters,capMatches,describeFilters} from '../lib/filters.mjs';
 import http from 'node:http';
-import {nextScanTime,scanDue} from '../lib/scan-status.mjs';
+import {nextScanTime,scanDue,SCAN_SCHEDULE} from '../lib/scan-status.mjs';
 import {csv,summaryRows} from '../lib/csv-report.mjs';
 import {readFile,writeFile,mkdir,rename,open,unlink} from 'node:fs/promises';
 import {join,dirname} from 'node:path';
@@ -13,10 +13,11 @@ const root=dirname(dirname(fileURLToPath(import.meta.url))),out=join(root,'outpu
 const statusPath=join(out,'agent-status.json'),reportPath=join(out,'report.json'),scanPath=join(out,'scan-checkpoint.json');
 try{const pid=Number(await readFile(join(out,'agent.lock'),'utf8'));try{process.kill(pid,0)}catch{await unlink(join(out,'agent.lock'))}}catch{}
 let runAbort,restartRequested=false;
-let status={state:'idle',phase:'Ready',schedule:'Every 3 hours and whenever Run fresh scan is clicked',timezone:'America/Los_Angeles',discovered:0,reviewed:0,pricesScanned:0,aiReviewed:0},active=false;
+let status={state:'idle',phase:'Ready',schedule:SCAN_SCHEDULE+' and whenever Run fresh scan is clicked',timezone:'America/Los_Angeles',discovered:0,reviewed:0,pricesScanned:0,aiReviewed:0},active=false;
 try{status={...status,...JSON.parse(await readFile(statusPath,'utf8'))};if(['running','paused','error'].includes(status.state)){status.state='paused';status.phase='Interrupted scan will resume'}}catch{}
 status.filters=normalizeFilters(status.filters);
-status.schedule='Every 3 hours and whenever Run fresh scan is clicked';status.nextScanAt ||= nextScanTime();
+const scheduleChanged=status.schedule!==SCAN_SCHEDULE+' and whenever Run fresh scan is clicked';
+status.schedule=SCAN_SCHEDULE+' and whenever Run fresh scan is clicked';if(scheduleChanged||!status.nextScanAt)status.nextScanAt=nextScanTime();
 const writes=new Map();async function save(path,value){const content=JSON.stringify(value);const promise=(writes.get(path)||Promise.resolve()).catch(()=>{}).then(async()=>{const temp=path+'.tmp';await writeFile(temp,content);await rename(temp,path)});writes.set(path,promise);await promise}
 async function update(fields){status={...status,...fields,updatedAt:new Date().toISOString()};await save(statusPath,status)}
 function day(){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}

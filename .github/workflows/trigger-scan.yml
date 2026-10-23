@@ -1,13 +1,13 @@
-name: Check three-hour scan trigger
+name: Check Pacific scan schedule
 on:
   schedule:
-    - cron: '7,27,47 * * * *'
+    - cron: '0,20,40 * * * *'
   workflow_dispatch:
 permissions:
   actions: write
   contents: read
 concurrency:
-  group: three-hour-scan-trigger
+  group: pacific-scan-trigger
   cancel-in-progress: false
 jobs:
   trigger:
@@ -20,7 +20,7 @@ jobs:
           node-version: '22'
       - name: Verify trigger rules
         run: node --test scripts/scan-trigger.test.mjs
-      - name: Trigger scan when three hours have elapsed
+      - name: Trigger due Pacific scan
         run: node scripts/trigger-scan.mjs
         env:
           GH_TOKEN: ${{ github.token }}

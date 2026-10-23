@@ -90,3 +90,13 @@ cutoff. Closing comparisons update at 21:55 UTC and after ordinary publications,
 using actual same-day open and close prices. GitHub schedules can be delayed;
 missed cutoffs are not concealed or backfilled. The page compares saved percentage,
 actual percentage, direction and absolute percentage-point error.
+
+
+### Two next-session percentage estimates
+
+The dashboard publishes two separately trained signed percentage changes for the same target trading session:
+
+- Open → close: `(target close / target open - 1) * 100`.
+- Close → close: `(target close / previous session close - 1) * 100`, including the overnight gap.
+
+Both models use past-only features with distinct log-return labels, calibration, daily replay metrics and saved artifacts. The primary estimated percentage remains open-to-close. The `estimates.openToClose` and `estimates.closeToClose` objects expose the signed percentage changes, intervals and model status in detailed and compact outputs. The dashboard displays these returns rather than direction probabilities. Unavailable estimates remain null. Values are experimental forecasts; actual moves can differ. New values appear after the updated prediction pipeline runs.

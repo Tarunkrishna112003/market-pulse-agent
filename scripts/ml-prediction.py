@@ -37,14 +37,17 @@ def feature_vector(company, anchor_date, anchor_price, minute, lookback, market)
     week = [d for d in news if d['date'] >= (datetime.fromisoformat(anchor_date)-timedelta(days=7)).date().isoformat()]
     return [returns[-1],statistics.mean(returns),vol,math.log(prior[-1]['close']/prior[0]['close']),math.sqrt(sum(min(r,0)**2 for r in returns)/len(returns)),math.log(high/low) if low>0 else 0,(anchor_price-low)/max(high-low,1e-8),(volumes[-1]/max(statistics.mean(volumes),1)) if volumes else 0,math.log(anchor_price/prior[-1]['close']),min(1,max(0,960-minute)/390),market_return,market_momentum,int(minute<570),lookback,*returns[-5:],news[-1]['tone'] if news else 0,statistics.mean([d['tone'] for d in week]) if week else 0,int(bool(news))]
 
-def build_rows(company,lookback,market,now):
+def build_rows(company,lookback,market,now,return_basis="open-to-close"):
+    if return_basis not in ("open-to-close", "close-to-close"):
+        raise ValueError("Unsupported return basis")
     daily = {d['date']:d for d in company['daily']}
     dates = sorted(daily)
     next_date = {a:b for a,b in zip(dates,dates[1:])}
+    previous_date = {b:a for a,b in zip(dates,dates[1:])}
     rows=[]
-    # Same-session open-to-close target; future opening prices are labels, never inputs.
+    # Target-session return; target prices are labels, never feature inputs.
     def session_return(day):
-        opening=day.get('open')
+        opening=day.get('open') if return_basis == 'open-to-close' else daily.get(previous_date.get(day['date']), {}).get('close')
         return math.log(day['close']/opening) if isinstance(opening,(int,float)) and math.isfinite(opening) and opening>0 else None
     # Pre-open examples use the prior close, with only information available at 9am.
     for previous,date in zip(dates,dates[1:]):
@@ -175,6 +178,7 @@ def main():
             candidates=build_rows(company,window,dataset['market'],now)
             records.extend(r for r in candidates if datetime.fromisoformat(r['date']).toordinal()%len(training_windows)==index)
     bundle=None;training_error=None
+    close_bundle=None;close_error=None
     try:
         from forecast_runtime import fit_runtime
         cutoff=(now.astimezone(NY).date()+timedelta(days=1)).isoformat()
@@ -183,9 +187,18 @@ def main():
     except Exception as error:
         training_error=str(error)[:300]
         metrics.append({'lookback':0,'adaptive':True,'state':'unavailable','error':training_error})
+    try:
+        close_records=[row for company in training_companies
+                       for row in build_rows(company,365,dataset['market'],now,'close-to-close')]
+        close_bundle,close_builder=fit_runtime(close_records,dataset['companies'],dataset['market'],cutoff,
+                                               return_basis='close-to-close')
+        metrics.append({'lookback':0,'adaptive':True,**close_bundle['metrics']})
+    except Exception as error:
+        close_error=str(error)[:300]
+        metrics.append({'lookback':0,'returnBasis':'close-to-close','state':'unavailable','error':close_error})
     universe=dataset.get('universe') or [{'symbol':c['symbol'],'name':c['name']} for c in dataset['companies']]
     directory=Path(sys.argv[3]).parent/'predictions';directory.mkdir(parents=True,exist_ok=True)
-    compact_keys=['confidenceStatus','validationPassed','upProbability','interval','state','forecastModel','returnBasis','lookback','targetDate','estimatedPercent','reason']
+    compact_keys=['estimates','rawUpProbability','confidenceStatus','validationPassed','upProbability','interval','state','forecastModel','returnBasis','lookback','targetDate','estimatedPercent','reason']
     for window in windows:
         current={};forecasts={}
         for company in dataset['companies']:
@@ -202,6 +215,12 @@ def main():
             forecasts.update(predict_runtime(bundle,builder,current,window))
         else:
             forecasts.update({symbol:{'state':'no-signal','lookback':window,'reason':training_error} for symbol in current})
+        from forecast_runtime import predict_runtime
+        close_forecasts=predict_runtime(close_bundle,close_builder,current,window) if close_bundle is not None else {}
+        for symbol,forecast in forecasts.items():
+            closing=close_forecasts.get(symbol,{})
+            from forecast_runtime import return_estimates
+            forecast['estimates']=return_estimates(forecast,closing,close_error)
         table_rows=[]
         for stock in universe:
             symbol=stock['symbol']

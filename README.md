@@ -13,7 +13,7 @@ npm run dev
 node --env-file=.env scripts/local-agent.mjs
 ```
 
-Open http://127.0.0.1:5173/. Keep both processes running for automatic scans every three hours. The background agent and Ollama must run on the same machine as the frontend server for this local workflow.
+Open http://127.0.0.1:5173/. Keep both processes running for automatic scans at 5 AM, 1 PM, 5 PM and 9 PM Pacific daily. The background agent and Ollama must run on the same machine as the frontend server for this local workflow.
 
 ## Rules
 
@@ -46,7 +46,7 @@ The local background service (`scripts/local-agent.mjs`) rediscovers all NASDAQ 
 
 After the numeric scan, the LLM reviews every company in batches of six, using fetched Yahoo Finance RSS headlines and the market data. Qwen3 0.6B runs locally through Ollama. The model selects relevant sourced headlines; output is validated against the supplied source list. The application uses source titles and links verbatim instead of allowing the model to invent price figures or causal narratives. Unknown symbols, nonexistent sources, incomplete batches and invalid JSON fail explicitly. LLM coverage is separate from successful price coverage. Full research is retained in ignored outputs/research.json; the UI shows representative batch summaries and matched-stock notes.
 
-Automatic cadence: every three hours. The Mac must be on, connected, and logged into the configured user account. Sleep postpones due work; a minute-by-minute scheduler catches it on wake. Weekends/holidays use the last completed session. The full scan can take hours on this Mac, and the LLM stage is intentionally separate. A previous numeric report remains visible while work runs. Same-day interrupted scans resume from outputs/scan-checkpoint.json. No promise of unattended updates while this Mac is powered off.
+Automatic cadence: at 5 AM, 1 PM, 5 PM and 9 PM Pacific daily. The Mac must be on, connected, and logged into the configured user account. Sleep postpones due work; a minute-by-minute scheduler catches it on wake. Weekends/holidays use the last completed session. The full scan can take hours on this Mac, and the LLM stage is intentionally separate. A previous numeric report remains visible while work runs. Same-day interrupted scans resume from outputs/scan-checkpoint.json. No promise of unattended updates while this Mac is powered off.
 
 Local agent exposes authenticated loopback-only status/start/report endpoints on port 8766. LOCAL_AGENT_TOKEN remains in ignored .env, never in the browser. The Site route proxies requests so the frontend does not need secrets. It cannot reach this Mac from a cloud-hosted deployment; this workflow is local.
 
@@ -63,7 +63,7 @@ outputs/top-25.csv contains up to 25 stocks matching the submitted filters. outp
 
 ## Current scan cadence
 
-The current schedule replaces the former once-daily cadence: automatically every three hours, plus a fresh scan on every Run click. The next automatic time persists in agent-status.json and is shown in the UI. A missed interval after sleep triggers one catch-up run. An automatic run replaces any earlier research still running at the three-hour boundary. Manual clicks remain available throughout. The Mac must be on and connected.
+The current schedule replaces the former once-daily cadence: automatically at 5 AM, 1 PM, 5 PM and 9 PM Pacific daily, plus a fresh scan on every Run click. The next automatic time persists in agent-status.json and is shown in the UI. A missed scheduled time after sleep triggers one catch-up run. An automatic run replaces any earlier research still running at the next scheduled time. Manual clicks remain available throughout. The Mac must be on and connected.
 
 Scan complete — results below appears as soon as price scanning and report/CSV publication finish; optional LLM research has its own background status and does not hold the numeric results in a perpetual loading state. Failed histories remain disclosed.
 
@@ -71,7 +71,7 @@ Scan complete — results below appears as soon as price scanning and report/CSV
 
 Choose minimum/maximum market cap in USD billions, minimum average absolute daily movement, optional maximum movement, and 1–365 calendar days. Run sends all values to the authenticated local agent. Client, Worker route, and agent validate them. The full NASDAQ and NYSE scan is preserved. Only matching stocks appear in the top-25 table; every matching stock is included in the CSV. This replaces the earlier below-threshold top-25 fallback.
 
-Last submitted filters persist in the agent status and are reused every three hours. Each report stores its own filters. Editing controls does not relabel an old report. Checkpoints include the lookback window and filter values, so interrupted data from a different window is not reused. Movement means average absolute daily close-to-close percentage change, with trading sessions drawn from the calendar-day window. The latest session can lag the current day until the market closes.
+Last submitted filters persist in the agent status and are reused at 5 AM, 1 PM, 5 PM and 9 PM Pacific daily. Each report stores its own filters. Editing controls does not relabel an old report. Checkpoints include the lookback window and filter values, so interrupted data from a different window is not reused. Movement means average absolute daily close-to-close percentage change, with trading sessions drawn from the calendar-day window. The latest session can lag the current day until the market closes.
 
 ## Public dashboard on GitHub
 
@@ -87,9 +87,9 @@ Below the results table, Investments & deals shows general Yahoo Finance news ab
 
 ## GitHub scan trigger
 
-`lib/github-scan-trigger.mjs` checks GitHub scan history and dispatches `scan-and-publish.yml` when three hours have elapsed since the last successful scan **finished**. `trigger-scan.yml` invokes `scripts/trigger-scan.mjs` every 20 minutes, at :07, :27 and :47 UTC, and can also be run manually. The first available check after the deadline starts one catch-up scan; it does not replay every missed interval. An active or queued scan prevents duplicates. Failed scans wait at least 30 minutes before retrying. The trigger uses the repository-scoped GitHub Actions token with Actions write permission; no external scheduler or additional credentials are required.
+`lib/github-scan-trigger.mjs` dispatches scans daily at **5 AM, 1 PM, 5 PM and 9 PM Pacific** (`America/Los_Angeles`, including daylight saving changes). `trigger-scan.yml` checks at :00, :20 and :40 UTC each hour. It catches up the latest missed slot, prevents duplicates while a scan is active, and waits 30 minutes before retrying failures. A run is assigned to its start time, so a long scan completing after the next slot does not suppress that slot. The scanner also supports manual dispatch. Direct legacy scheduled scans are removed to prevent extra runs.
 
-This replaces the former fixed `17 */3 * * *` scan schedule. The trigger is still invoked by GitHub scheduling, which may delay or drop checks; it improves catch-up opportunities but cannot guarantee exact three-hour timing. Scans use the public defaults (30 days, $20B–$100B cap, 0%–5% movement). Successful scan deployment completion is the interval baseline.
+GitHub Actions can delay scheduled checks, so these are requested start times rather than guaranteed exact start times. Local scans use the same daily Pacific schedule. Workflow changes take effect after they reach the repository’s default branch.
 
 Validation: `node --test scripts/scan-trigger.test.mjs`.
 

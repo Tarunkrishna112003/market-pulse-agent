@@ -4,12 +4,15 @@ import {scanTriggerDecision,triggerDueScan} from '../lib/github-scan-trigger.mjs
 const completed='2026-10-08T19:10:19Z';
 const success={status:'completed',conclusion:'success',updated_at:completed};
 const threeHours=3*60*60*1000;
-test('trigger waits exactly three hours after successful completion',()=>{
- const due=Date.parse(completed)+threeHours;
+test('trigger follows fixed Pacific slots rather than completion intervals',()=>{
+ const due=Date.parse('2026-10-08T20:00:00Z');
  assert.equal(scanTriggerDecision([success],due-1).due,false);
  assert.equal(scanTriggerDecision([success],due).due,true);
- assert.equal(scanTriggerDecision([success],due+2*threeHours).due,true);
- assert.equal(scanTriggerDecision([success],due-1).nextScanAt,'2026-10-08T22:10:19.000Z');
+ assert.equal(scanTriggerDecision([success],due-1).nextScanAt,'2026-10-08T20:00:00.000Z');
+ const overlapping={...success,created_at:'2026-10-08T19:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
+ assert.equal(scanTriggerDecision([overlapping],Date.parse('2026-10-08T20:31:00Z')).due,true);
+ const onTime={...success,created_at:'2026-10-08T20:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
+ assert.equal(scanTriggerDecision([onTime],Date.parse('2026-10-08T20:31:00Z')).due,false);
 });
 test('running, pending and queued scans prevent duplicate dispatch',()=>{
  for(const status of ['queued','pending','waiting','requested','in_progress'])assert.equal(scanTriggerDecision([success,{status}],Date.parse(completed)+threeHours*2).due,false);

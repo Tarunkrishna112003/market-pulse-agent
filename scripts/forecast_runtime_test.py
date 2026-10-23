@@ -37,8 +37,45 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(output['modelVersion'],MODEL_VERSION)
         self.assertEqual(output['targetDate'],'2026-04-11')
         self.assertFalse(output['validationPassed'])
+        self.assertEqual(output['confidenceStatus'],'experimental')
+        self.assertTrue(0<=output['rawUpProbability']<=1)
         self.assertLessEqual(output['interval']['lowerPercent'],output['estimatedPercent'])
         self.assertLessEqual(output['estimatedPercent'],output['interval']['upperPercent'])
         self.assertTrue(0<=output['upProbability']<=1)
+        closing=predict_runtime({'model':model,'metrics':{},'returnBasis':'close-to-close'},builder,{'A':context},365)['A']
+        self.assertEqual(closing['returnBasis'],'close-to-close')
+        self.assertEqual(closing['targetDate'],output['targetDate'])
+
+    def test_two_estimates_preserve_independent_signed_returns_and_unavailability(self):
+        from forecast_runtime import return_estimates
+        opening={'state':'estimated','targetDate':'2026-04-11','estimatedPercent':1.81,
+                 'interval':{'lowerPercent':-1.,'upperPercent':3.},'confidenceStatus':'experimental'}
+        closing={**opening,'estimatedPercent':-2.41,'interval':{'lowerPercent':-4.,'upperPercent':1.}}
+        estimates=return_estimates(opening,closing)
+        self.assertEqual(estimates['openToClose']['estimatedPercent'],1.81)
+        self.assertEqual(estimates['closeToClose']['estimatedPercent'],-2.41)
+        self.assertEqual(estimates['closeToClose']['returnBasis'],'close-to-close')
+        self.assertEqual(estimates['closeToClose']['interval'],closing['interval'])
+        self.assertNotIn('upProbability',estimates['closeToClose'])
+        missing=return_estimates(opening,{},'Training failed')['closeToClose']
+        self.assertIsNone(missing['estimatedPercent'])
+        self.assertEqual(missing['state'],'no-signal')
+        self.assertEqual(missing['reason'],'Training failed')
+
+    def test_runtime_evaluation_refits_daily_without_using_target_day_labels(self):
+        from forecast_runtime import evaluate_runtime
+        rows=self.rows();metric,records=evaluate_runtime(rows,'2026-04-11')
+        self.assertEqual(metric['testTradingDates'],10)
+        self.assertEqual(metric['testSamples'],80)
+        self.assertIn('historicalMajorityDirectionAccuracy',metric)
+        for row in records:
+            self.assertLess(row['fitBounds']['trainingTargetEnd'],row['date'])
+            self.assertLess(row['fitBounds']['calibrationTrainingEnd'],row['fitBounds']['calibrationStart'])
+        poisoned=deepcopy(rows)
+        for row in poisoned:
+            if row['targetDate']=='2026-04-10':row['y']=-row['y']*100
+        _,other=evaluate_runtime(poisoned,'2026-04-11')
+        np.testing.assert_array_equal([r['prediction'] for r in records],[r['prediction'] for r in other])
+
 
 if __name__=='__main__':unittest.main()

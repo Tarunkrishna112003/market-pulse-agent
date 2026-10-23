@@ -39,6 +39,20 @@ class ForecastDataTests(unittest.TestCase):
         del target['open']
         self.assertFalse(any(r['targetDate']==target['date'] for r in ml.build_rows(c,17,[],datetime(2027,1,1,tzinfo=timezone.utc))))
 
+    def test_dual_return_targets_disagree_on_overnight_gap_without_feature_leakage(self):
+        c=self.company();target=c['daily'][50];previous=c['daily'][49]
+        target['open']=previous['close']*1.10
+        target['close']=previous['close']*1.05
+        now=datetime(2027,1,1,tzinfo=timezone.utc)
+        oc=[r for r in ml.build_rows(c,17,[],now) if r['targetDate']==target['date']]
+        cc=[r for r in ml.build_rows(c,17,[],now,'close-to-close') if r['targetDate']==target['date']]
+        self.assertEqual(len(oc),len(cc))
+        for a,b in zip(oc,cc):
+            self.assertEqual(a['x'],b['x'])
+            self.assertAlmostEqual(a['y'],ml.math.log(1.05/1.10))
+            self.assertAlmostEqual(b['y'],ml.math.log(1.05))
+        with self.assertRaises(ValueError):ml.build_rows(c,17,[],now,'invalid')
+
     def test_chronological_partitions_are_purged(self):
         c=self.company();rows=[]
         for i,d in enumerate(c['daily'][:-1]):
@@ -129,6 +143,7 @@ class ForecastDataTests(unittest.TestCase):
         class ConstantModel:
             def predict(self,x):return np.full(len(x),0.01)
             def probability(self,x):return np.full(len(x),.6)
+            def raw_probability(self,x):return np.full(len(x),.6)
             def predict_quantile(self,x,level):return np.full(len(x),-.02 if level<.5 else .02)
         metric={'features':'prices','validationPassed':False,'trainingRows':1000,'model':'fixture'}
         bundle={'model':ConstantModel(),'metrics':metric,'calibrationResidualQuantiles':[-0.02,0.02]}
