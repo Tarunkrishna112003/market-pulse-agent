@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createTest,updateTest,cutoffAt} from '../lib/testing-results.mjs';
+import {createTest,extendTest,restoreSavedPredictions,updateTest,cutoffAt} from '../lib/testing-results.mjs';
 const cohort={sessionDate:'2026-10-16',rows:Array.from({length:25},(_,i)=>({symbol:'S'+i,name:'Stock '+i}))};
 const snapshot=(percent=2)=>({reportId:'published',modelVersion:'annual',generatedAt:'2026-10-19T11:30:00Z',lookback:365,rows:[{symbol:'S0',state:'estimated',lookback:365,returnBasis:'open-to-close',targetDate:'2026-10-19',estimatedPercent:percent}]});
 test('test keeps a fixed set of 25 for the requested week, even if deployment is late',()=>{
@@ -63,4 +63,25 @@ test('October 20 switch uses exact frozen candidate values, preserves October 19
  assert.equal(migrated.entries[25].prediction.originallyPublic,false);
  assert.deepEqual(useFrozenOctober20(migrated,raw,new Date('2026-10-21T19:00:00Z')),migrated);
  assert.throws(()=>useFrozenOctober20(state,raw+' '),/integrity/);
+});
+
+test('second week preserves all prior entries and extension is idempotent',()=>{
+ const prior=createTest(cohort);prior.entries[0].prediction={percent:3};prior.entries[0].actual={percent:2};
+ const extended=extendTest(prior);
+ assert.deepEqual(extended.entries.slice(0,125),prior.entries);assert.equal(extended.entries.length,250);
+ assert.deepEqual(extended.dates.slice(5),['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30']);
+ assert.deepEqual(extendTest(extended),extended);assert.equal(prior.entries.length,125);
+});
+test('history recovery uses saved pre-cutoff forecasts and preserves frozen values',()=>{
+ const state=extendTest(createTest(cohort));const row={id:'saved',symbol:'S0',targetDate:'2026-10-26',lookback:365,returnBasis:'open-to-close',generatedAt:'2026-10-23T15:00:00Z',estimatedPercent:2,modelVersion:'existing'};
+ const history={records:[{...row,generatedAt:'2026-10-26T12:55:00Z',estimatedPercent:9},row,{...row,symbol:'S1',generatedAt:'2026-10-26T13:00:00Z'},{...row,symbol:'S2',lookback:30},{...row,symbol:'S3',returnBasis:'scan-to-close'}]};
+ const now=new Date('2026-10-27T22:00:00Z'),recovered=restoreSavedPredictions(state,history,now);
+ assert.equal(restoreSavedPredictions(state,history,new Date('2026-10-26T12:00:00Z')).entries[125].prediction,null);
+ assert.equal(recovered.entries[125].prediction.percent,2);assert.equal(recovered.entries[125].prediction.historyId,'saved');
+ for(const i of [126,127,128])assert.equal(recovered.entries[i].prediction,null);
+ assert.deepEqual(recovered.entries.slice(0,125),state.entries.slice(0,125));
+ assert.deepEqual(restoreSavedPredictions(recovered,{records:[{...row,estimatedPercent:99}]},now),recovered);
+ const scored=updateTest(recovered,{rows:[]},[{symbol:'S0',daily:[{date:'2026-10-26',open:100,close:103}]}],now);
+ assert.equal(scored.entries[125].status,'compared');assert.ok(Math.abs(scored.entries[125].errorPoints-1)<1e-9);
+ assert.equal(scored.entries[126].status,'missed-cutoff');
 });
