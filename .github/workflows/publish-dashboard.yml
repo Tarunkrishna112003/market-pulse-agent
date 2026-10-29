@@ -22,6 +22,10 @@ on:
       - 'scripts/forecast_models.py'
       - 'scripts/forecast_benchmark.py'
       - 'scripts/forecast_runtime.py'
+      - 'scripts/stock_specific.py'
+      - 'scripts/stock_specific_runtime.py'
+      - 'lib/stock-specific-data.mjs'
+      - 'data/prediction-model.json'
       - 'scripts/forecast_features.py'
       - 'scripts/forecast_research.py'
       - 'lib/frozen-forecast-migration.mjs'
@@ -80,7 +84,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = push ]; then
           while IFS= read -r changed_file; do
             case "$changed_file" in
-              scripts/ml-prediction.py|scripts/forecast_models.py|scripts/forecast_benchmark.py|scripts/forecast_runtime.py|scripts/forecast_features.py|scripts/forecast_research.py|scripts/prediction-agent.mjs|scripts/news-sentiment.py|lib/prediction.mjs|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/trading-calendar.mjs|.github/actions/prediction-agent/*) refresh=true ;;
+              scripts/ml-prediction.py|scripts/forecast_models.py|scripts/forecast_benchmark.py|scripts/forecast_runtime.py|scripts/forecast_features.py|scripts/forecast_research.py|scripts/stock_specific.py|scripts/stock_specific_runtime.py|scripts/prediction-agent.mjs|scripts/news-sentiment.py|lib/prediction.mjs|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/stock-specific-data.mjs|lib/trading-calendar.mjs|data/prediction-model.json|.github/actions/prediction-agent/*) refresh=true ;;
             esac
           done < /tmp/forecast-changed-files.txt
           fi

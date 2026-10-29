@@ -1,0 +1,8 @@
+{
+  "version": "daily-open-to-close-v10-direction-aware",
+  "family": "direction-aware",
+  "name": "Direction-aware direct-return model",
+  "activationDate": "2026-10-29",
+  "experimental": true,
+  "historicalJointGatePassed": false
+}

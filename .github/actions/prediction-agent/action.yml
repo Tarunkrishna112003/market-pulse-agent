@@ -20,12 +20,13 @@ runs:
       run: |
         python -m pip install 'torch>=2.6,<3' --index-url https://download.pytorch.org/whl/cpu
         python -m pip install 'transformers>=4.44,<5' 'scikit-learn>=1.5,<2' joblib
+        python -m pip install 'lightgbm==4.6.0'
     - name: Analyse financial headline sentiment
       shell: bash
       run: python scripts/news-sentiment.py public-site/prediction-news.json public-site/prediction-sentiment.json
     - name: Gather historical prices and news for supervised training
       shell: bash
-      run: node scripts/prediction-agent.mjs --training-data
+      run: node scripts/prediction-agent.mjs --stock-training-data
     - name: Test leakage controls and train candidate forecasting models
       shell: bash
       env:
@@ -34,7 +35,9 @@ runs:
       run: |
         python -m unittest discover -s scripts -p 'ml_prediction_test.py'
         python -m unittest discover -s scripts -p 'forecast_runtime_test.py'
-        python scripts/ml-prediction.py public-site/prediction-training.json public-site/prediction-sentiment.json public-site/prediction-trained.json
+        python -m unittest discover -s scripts -p 'stock_specific_test.py'
+        python -m unittest discover -s scripts -p 'stock_specific_runtime_test.py'
+        python scripts/stock_specific_runtime.py public-site/prediction-training.json public-site/prediction-sentiment.json public-site/prediction-trained.json
     - name: Save fitted models and training diagnostics
       uses: actions/upload-artifact@v4
       with:

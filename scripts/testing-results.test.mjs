@@ -85,3 +85,23 @@ test('history recovery uses saved pre-cutoff forecasts and preserves frozen valu
  assert.equal(scored.entries[125].status,'compared');assert.ok(Math.abs(scored.entries[125].errorPoints-1)<1e-9);
  assert.equal(scored.entries[126].status,'missed-cutoff');
 });
+
+test('model activation preserves past records and cannot recover the old model for new dates',()=>{
+ const state=extendTest(createTest(cohort)),selection={version:'new-model',activationDate:'2026-10-29'};
+ state.entries[0].prediction={percent:3,modelVersion:'original'};
+ const row={id:'old',symbol:'S0',targetDate:'2026-10-29',lookback:365,returnBasis:'open-to-close',generatedAt:'2026-10-28T21:00:00Z',estimatedPercent:2,modelVersion:'old-model'};
+ const result=restoreSavedPredictions(state,{records:[row,{...row,id:'new',modelVersion:'new-model',estimatedPercent:-1,generatedAt:'2026-10-29T12:00:00Z'}]},new Date('2026-10-29T21:00:00Z'),selection);
+ assert.deepEqual(result.entries[0],state.entries[0]);assert.equal(result.entries.find(e=>e.date==='2026-10-29'&&e.symbol==='S0').prediction.percent,-1);
+ const oldSnapshot={lookback:365,generatedAt:'2026-10-29T12:00:00Z',modelVersion:'old-model',rows:[{symbol:'S0',state:'estimated',lookback:365,returnBasis:'open-to-close',targetDate:'2026-10-29',estimatedPercent:9}]};
+ const capture=updateTest(state,oldSnapshot,[],new Date('2026-10-29T12:30:00Z'),selection);
+ assert.equal(capture.entries.find(e=>e.date==='2026-10-29'&&e.symbol==='S0').prediction,null);
+});
+
+test('after-open model forecast is separate from the frozen morning test',()=>{
+ const state=extendTest(createTest(cohort));const entry=state.entries.find(e=>e.date==='2026-10-29'&&e.symbol==='S0');entry.prediction={percent:2,modelVersion:'old-morning'};
+ const source={lookback:365,generatedAt:'2026-10-29T16:00:00Z',modelVersion:'new',rows:[{symbol:'S0',state:'estimated',lookback:365,returnBasis:'open-to-close',targetDate:'2026-10-29',estimatedPercent:-1,modelVersion:'new',generatedAfterOpen:true}]};
+ const first=updateTest(state,source,[],new Date('2026-10-29T16:05:00Z'));const row=first.entries.find(e=>e.date==='2026-10-29'&&e.symbol==='S0');
+ assert.deepEqual(row.prediction,entry.prediction);assert.equal(row.lateForecasts[0].percent,-1);assert.equal(row.status,'awaiting-close');
+ const second=updateTest(first,{...source,rows:[{...source.rows[0],estimatedPercent:9}]},[{symbol:'S0',daily:[{date:'2026-10-29',open:100,close:99}]}],new Date('2026-10-29T22:00:00Z'));
+ const scored=second.entries.find(e=>e.date==='2026-10-29'&&e.symbol==='S0');assert.equal(scored.prediction.percent,2);assert.ok(Math.abs(scored.errorPoints-3)<1e-8);assert.ok(scored.lateForecasts[0].errorPoints<1e-8);
+});
