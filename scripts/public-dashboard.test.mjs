@@ -1,40 +1,70 @@
-import test from 'node:test';
+import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,copyFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {nextForecastSession} from '../lib/trading-calendar.mjs';
-test('public dashboard loads without removed link and initializes movement filters to 0–5%',async()=>{
- const dir=await mkdtemp(join(tmpdir(),'public-dashboard-'));const savedDocument=globalThis.document,savedFetch=globalThis.fetch;
- try{
- for(const file of ['filters.mjs','csv-report.mjs','trading-calendar.mjs'])await copyFile('lib/'+file,join(dir,file));await copyFile('github-pages/app.js',join(dir,'app.mjs'));
- const nodes=new Map();for(const id of ['minCap','maxCap','minMove','maxMove','days','rows','newsRows','status','details','count','empty','topCsv','allCsv','filters'])nodes.set(id,{value:'',textContent:'',children:[],replaceChildren(){this.children=[]},append(...items){this.children.push(...items)}});
- globalThis.document={getElementById:id=>nodes.get(id)||null,createElement:()=>({children:[],click(){},append(...items){this.children.push(...items)}})};
- globalThis.fetch=async url=>String(url)==='predictions.json'?{ok:true,json:async()=>({reportId:'fixture',rows:[{symbol:'OUTSIDE',forecasts:[{lookback:365,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:nextForecastSession(),estimatedPercent:0.81}]},{symbol:'LOW',forecasts:[{lookback:18,state:'estimated',forecastModel:'supervised',returnBasis:'scan-to-close',validationPassed:true,targetDate:nextForecastSession(),estimatedPercent:9},{lookback:17,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',validationPassed:false,targetDate:nextForecastSession(),estimatedPercent:-0.73},{lookback:365,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',validationPassed:true,targetDate:nextForecastSession(),estimatedPercent:1.23}]}]})}:({ok:true,json:async()=>({report:{id:'fixture',filters:{minMarketCap:20e9,maxMarketCap:100e9,minAverage:5,maxAverage:null,lookbackDays:30},end:'2026-10-06',createdAt:'2026-10-06T20:00:00Z',scanned:2,total:2,errors:[],sources:['fixture'],complete:true,marketNews:{state:'available',items:[{title:'Company announces investment',url:'https://finance.yahoo.com/news/investment',category:'Investment / funding',publishedAt:'2026-10-06T19:00:00Z'}]}},stocks:[{symbol:'OUTSIDE',name:'Outside original cap range',marketCap:1e9,price:10,history:[['2026-10-05',10,1]]},{symbol:'LOW',name:'Low movement',marketCap:30e9,price:100,history:[['2026-10-05',100,2]]},{symbol:'HIGH',name:'High movement',marketCap:30e9,price:100,history:[['2026-10-05',100,6]]}]})});
- await import(pathToFileURL(join(dir,'app.mjs')).href);
- assert.equal(nodes.get('minMove').value,0);assert.equal(nodes.get('maxMove').value,5);assert.equal(nodes.get('rows').children.length,1);assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.23%');assert.equal(nodes.get('rows').children[0].children[4].children[1].textContent,nextForecastSession());assert.match(nodes.get('rows').children[0].children[0].children[0].href,/stock.html\?symbol=LOW&days=30/);assert.equal(nodes.get('rows').children[0].children[1].textContent,'$100.00');assert.equal(nodes.get('rows').children[0].children[5].textContent,'$30.00B');assert.match(nodes.get('status').textContent,/Scan complete/);assert.doesNotThrow(()=>nodes.get('topCsv').onclick());
- nodes.get('days').value='17';nodes.get('filters').onsubmit({preventDefault(){}});assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.23%');assert.match(nodes.get('rows').children[0].children[4].children[0].title,/365 calendar days/);assert.equal(nodes.get('rows').children[0].children[4].children.length,2);assert.equal(nodes.get('rows').children[0].children[4].children[0].href,undefined);nodes.get('days').value='18';nodes.get('filters').onsubmit({preventDefault(){}});assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.23%');nodes.get('days').value='30';nodes.get('minCap').value='0';nodes.get('filters').onsubmit({preventDefault(){}});assert.equal(nodes.get('rows').children.length,2);assert.equal(nodes.get('rows').children[1].children[4].children[0].textContent,'+0.81%');nodes.get('minMove').value='3';nodes.get('filters').onsubmit({preventDefault(){}});assert.equal(nodes.get('rows').children.length,0);assert.equal(nodes.get('newsRows').children.length,1);assert.equal(nodes.get('newsRows').children[0].children[1].children[0].textContent,'Company announces investment');
- const html=await readFile('github-pages/index.html','utf8');assert.match(html,/app\.js\?v=/);assert.match(html,/<th>Company \/ ticker<\/th><th>Current price<\/th>/);assert.doesNotMatch(html,/predictionLink|prediction\.html/);assert.doesNotMatch(html,/<th>#<\/th>/);assert.match(html,/<th>Avg\. daily move ↓<\/th><th>Session open → close<\/th>/);
- }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}
+const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
+for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
+const {parseRanges,movementRows,predictionRows,searchStocks,historyView,testDayView,csvText}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+after(()=>rm(dir,{recursive:true,force:true}));
+const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
+const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
+ {symbol:'AAPL',name:'Apple Inc.',marketCap:3e12,price:200,change:-1,history:[['2026-10-30',200,-1,199,202,201,2000]]},
+ {symbol:'SMALL',name:'Small Stock',marketCap:1e9,price:10,change:3,history:[['2026-10-30',10,3,9,11,9,100]]}];
+const data={report,stocks};
+
+test('volatility uses inclusive cap and movement ranges, absolute returns and the selected calendar window',()=>{
+ const filters=parseRanges({minCap:20,maxCap:200,minMove:3,maxMove:3,days:30});const rows=movementRows(data,filters);
+ assert.equal(rows.length,1);assert.equal(rows[0].symbol,'APP');assert.equal(rows[0].average,3);assert.equal(rows[0].sessions,2);
+ assert.equal(movementRows(data,parseRanges({minCap:20,maxCap:200,minMove:3,maxMove:3,days:1})).length,0);
+ assert.equal(stocks[0].average,undefined);assert.throws(()=>parseRanges({minCap:200,maxCap:20}));
 });
 
-test('dashboard always loads annual forecasts while displayed movement filters change',async()=>{
- const dir=await mkdtemp(join(tmpdir(),'full-universe-forecasts-'));const savedDocument=globalThis.document,savedFetch=globalThis.fetch;
- try{
-  for(const file of ['filters.mjs','csv-report.mjs','trading-calendar.mjs'])await copyFile('lib/'+file,join(dir,file));await copyFile('github-pages/app.js',join(dir,'app.mjs'));
-  const nodes=new Map();for(const id of ['minCap','maxCap','minMove','maxMove','days','rows','newsRows','status','details','count','empty','topCsv','allCsv','filters'])nodes.set(id,{value:'',children:[],replaceChildren(){this.children=[]},append(...items){this.children.push(...items)}});
-  globalThis.document={getElementById:id=>nodes.get(id)||null,createElement:()=>({children:[],append(...items){this.children.push(...items)}})};
-  const requested=[];
-  globalThis.fetch=async url=>{requested.push(String(url));let value;
-   if(url==='predictions.json')value={reportId:'universe',tableFiles:[365],rows:[]};
-   else if(String(url).startsWith('predictions/')){const period=Number(String(url).match(/\/(\d+)\./)[1]);value={reportId:period===13?'wrong-scan':'universe',lookback:period,rows:[{symbol:'SMALL',lookback:period,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:nextForecastSession(),estimatedPercent:1.81,estimates:{openToClose:{state:'estimated',estimatedPercent:1.81,targetDate:nextForecastSession()},closeToClose:{state:'estimated',estimatedPercent:-2.41,targetDate:nextForecastSession()}},confidenceStatus:'experimental',validationPassed:false}]}}
-   else value={report:{id:'universe',filters:{minMarketCap:0,maxMarketCap:100e9,minAverage:0,maxAverage:5,lookbackDays:17},end:'2026-10-06',createdAt:'2026-10-06T20:00:00Z',scanned:1,total:1,errors:[],sources:['fixture']},stocks:[{symbol:'SMALL',name:'Outside training cohort',marketCap:1e9,price:10,history:[['2026-10-05',10,1]]}]};
-   return {ok:true,json:async()=>value};
-  };
-  await import(pathToFileURL(join(dir,'app.mjs')).href);
-  assert.ok(requested.includes('predictions/365.json'));assert.equal(nodes.get('rows').children[0].children[4].children[2].textContent,'Close → close: -2.41%');assert.equal(nodes.get('rows').children[0].children[4].children.length,3);assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.81%');
-  nodes.get('days').value='13';nodes.get('filters').onsubmit({preventDefault(){}});await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(nodes.get('rows').children[0].children[4].children[0].textContent,'+1.81%');assert.equal(requested.filter(url=>url==='predictions/365.json').length,1);assert.ok(!requested.includes('predictions/13.json'));
- }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}
+test('prediction filters retain independent ranges and exclude expired or mismatched target sessions',()=>{
+ const now=new Date('2026-10-30T12:00:00Z');
+ const make=(percent,date='2026-10-30')=>({state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:date,estimatedPercent:percent});
+ const forecasts=new Map([['APP',make(-.18)],['AAPL',make(.5)],['SMALL',make(2,'2026-10-29')]]);
+ const options={minCap:0,maxCap:4000,minMove:0,maxMove:'',days:30,direction:'negative',minPrediction:-1,maxPrediction:0,availableOnly:true};
+ assert.deepEqual(predictionRows(data,forecasts,options,now).map(s=>s.symbol),['APP']);
+ assert.deepEqual(predictionRows(data,forecasts,{...options,direction:'all',minPrediction:'',maxPrediction:''},now).map(s=>s.symbol),['AAPL','APP']);
+ assert.equal(predictionRows(data,forecasts,{...options,direction:'all',minPrediction:'',maxPrediction:'',availableOnly:false},now).length,3);
+ assert.throws(()=>predictionRows(data,forecasts,{...options,minPrediction:2,maxPrediction:1},now),/valid minimum/);
+});
+
+test('explore searches all scanned stocks by ticker or company, independent of screener filters',()=>{
+ assert.deepEqual(searchStocks(stocks,'apple').map(s=>s.symbol),['AAPL']);
+ assert.equal(searchStocks(stocks,'APP')[0].symbol,'APP');
+ assert.equal(searchStocks(stocks,'small stock')[0].symbol,'SMALL');
+ assert.deepEqual(searchStocks(stocks,'','watchlist',new Set(['SMALL'])).map(s=>s.symbol),['SMALL']);
+ assert.deepEqual(searchStocks(stocks,'','decliners').map(s=>s.symbol),['AAPL']);
+ assert.equal(searchStocks(stocks,'no-such-stock').length,0);
+});
+
+test('range return uses the known preceding close and preserves volume and missing ranges',()=>{
+ const stock={...stocks[0],predictionBaseline:[['2026-10-28',100,0,99,101,100,900]]};
+ const view=historyView(stock,report,2);assert.ok(Math.abs(view.returnPercent-10)<1e-10);
+ assert.equal(view.baselineDate,'2026-10-28');assert.equal(view.days[0].volume,1200);assert.equal(view.days.length,2);
+ assert.equal(historyView({...stock,history:[['2026-10-30',110,2]]},report,1).missingRanges,true);
+});
+
+test('testing shows all 25 original stocks and keeps after-open scores separate',()=>{
+ const cohort=Array.from({length:25},(_,i)=>({symbol:'S'+i,name:'Stock '+i}));
+ const saved={stocks:cohort,entries:[{date:'2026-10-30',symbol:'S0',prediction:{percent:2},actual:{percent:-1},lateForecasts:[{percent:-1,generatedAt:'2026-10-30T16:00:00Z'}]}]};
+ const morning=testDayView(saved,'2026-10-30'),late=testDayView(saved,'2026-10-30','late');
+ assert.equal(morning.rows.length,25);assert.equal(late.rows.length,25);assert.equal(morning.compared,1);assert.equal(morning.correct,0);assert.equal(morning.mae,3);
+ assert.equal(late.correct,1);assert.equal(late.mae,0);assert.equal(morning.rows[1].prediction,undefined);assert.equal(saved.entries[0].prediction.percent,2);
+});
+
+test('CSV preserves numeric returns and escapes spreadsheet formulas in external strings',()=>{
+ const value=csvText(['Ticker','Return'],[['=BAD()',-.18],['Name "quoted"',.09]]);
+ assert.ok(value.includes('"\'=BAD()"'));assert.ok(value.includes('"-0.18"'));assert.ok(value.includes('Name ""quoted""'));
+});
+
+test('dashboard exposes four separate accessible sections and a complete explore/history route',async()=>{
+ const html=await readFile('github-pages/index.html','utf8');
+ for(const section of ['volatility','predictions','explore','testing'])assert.match(html,new RegExp('id="panel-'+section+'"'));
+ assert.match(html,/id="volatilityFilters"/);assert.match(html,/id="predictionFilters"/);assert.match(html,/id="stockSearch" type="search"/);assert.match(html,/id="testVariant"/);
+ assert.match(html,/href="#testing"/);assert.match(html,/Skip to content/);
+ const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
 });

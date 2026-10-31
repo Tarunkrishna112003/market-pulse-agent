@@ -68,7 +68,7 @@ jobs:
             curl --fail --retry 3 --silent --show-error "https://tarunkrishna112003.github.io/market-pulse-agent/$file?deploy=${GITHUB_RUN_ID}" --output "public-site/$file"
           done
           node --input-type=module -e "import {readFileSync} from 'node:fs'; const d=JSON.parse(readFileSync('public-site/data.json','utf8')); if(!d.report || !Array.isArray(d.stocks)) throw Error('Invalid published scan');"
-          cp github-pages/index.html github-pages/app.js github-pages/style.css github-pages/stock.html github-pages/stock.js github-pages/testing.html github-pages/testing.js public-site/
+          cp github-pages/index.html github-pages/app.js github-pages/style.css github-pages/dashboard-data.mjs github-pages/dashboard-chart.mjs github-pages/stock.html github-pages/stock.js github-pages/testing.html github-pages/testing.js public-site/
           cp lib/filters.mjs lib/csv-report.mjs lib/stock-history.mjs lib/trading-calendar.mjs public-site/
           touch public-site/.nojekyll
           node --check public-site/app.js

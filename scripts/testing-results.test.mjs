@@ -33,7 +33,7 @@ test('actual comparison waits for close and uses close divided by open, not late
 test('6 AM Pacific cutoff follows daylight and standard time',()=>{
  assert.equal(cutoffAt('2026-10-19'),'2026-10-19T13:00:00.000Z');assert.equal(cutoffAt('2026-11-02'),'2026-11-02T14:00:00.000Z');
 });
-test('testing page shows the saved number beside actual change and bottom button opens it',async()=>{
+test('testing page preserves saved numbers and dashboard navigation exposes its section',async()=>{
  const {mkdtemp,copyFile,readFile,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),{join}=await import('node:path'),{pathToFileURL}=await import('node:url');
  const dir=await mkdtemp(join(tmpdir(),'testing-page-'));const savedDocument=globalThis.document,savedFetch=globalThis.fetch;
  try{
@@ -44,7 +44,7 @@ test('testing page shows the saved number beside actual change and bottom button
   globalThis.document={getElementById:id=>nodes.get(id),createElement:()=>({children:[],append(...items){this.children.push(...items)}})};globalThis.fetch=async()=>({ok:true,json:async()=>state});
   await import(pathToFileURL(join(dir,'testing.mjs')).href);nodes.get('testDay').value='2026-10-19';nodes.get('testDay').onchange();
   assert.equal(nodes.get('testRows').children.length,25);const row=nodes.get('testRows').children[0];assert.equal(row.children[1].textContent,'+2.00%');assert.equal(row.children[2].textContent,'+3.00%');assert.equal(row.children[3].textContent,'1.00');assert.equal(row.children[4].textContent,'Correct direction');
-  const html=await readFile('github-pages/index.html','utf8');assert.match(html,/href="testing.html">Testing results/);assert.ok(html.indexOf('Testing results')>html.indexOf('Report details'));
+  const html=await readFile('github-pages/index.html','utf8');assert.match(html,/href="#testing"/);assert.match(html,/id="panel-testing"/);
  }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}
 });
 
