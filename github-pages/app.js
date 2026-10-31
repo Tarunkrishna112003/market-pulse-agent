@@ -32,9 +32,9 @@ function route(){
  document.body.dataset.section=r.section;
 }
 function summaryCard(label,value,foot,icon){const box=el('div',null,'summary-card');append(box,el('span',label,'summary-label'),el('div',value,'summary-value'),el('div',foot,'summary-foot'));if(icon)box.append(el('span',icon,'summary-icon'));return box;}
-function renderStats(){
+function renderStats(section){
  const target=$('overviewStats');target.replaceChildren();const report=state.data.report,available=[...state.forecasts.values()].filter(f=>usableForecast(f)).length;
- append(target,summaryCard('Scanned universe',fmt.number(state.data.stocks.length),'Stocks with usable histories','▥'),summaryCard('Matching your range',fmt.number(state.volatility.length),'Current volatility filters','⌁'),summaryCard('Current model forecasts',fmt.number(available),'Available in this snapshot','↗'),summaryCard('History available',report.filters.lookbackDays+' days','Calendar-day scan coverage','◷'));
+ append(target,summaryCard('Scanned universe',fmt.number(state.data.stocks.length),'Stocks with usable histories','▥'),summaryCard(section==='explore'?'Matching your search':'Matching your range',fmt.number(section==='predictions'?state.predictions.length:section==='explore'?state.explore.length:state.volatility.length),section==='predictions'?'Current prediction filters':section==='explore'?'Current explore search':'Current volatility filters','⌁'),summaryCard('Current model forecasts',fmt.number(available),'Available in this snapshot','↗'),summaryCard('History available',report.filters.lookbackDays+' days','Calendar-day scan coverage','◷'));
 }
 function renderVolatility(){
  try{const options=formValues($('volatilityFilters'));state.volFilters=parseRanges(options);state.volatility=movementRows(state.data,state.volFilters);$('volatilityFilterNote').textContent='The day filter changes historical movement statistics, not model training.';}
@@ -44,7 +44,7 @@ function renderVolatility(){
  if(!rows.length)emptyRow(target,7,'No stocks match these ranges. Try widening the market-cap or movement filters.');
  $('volatilityCount').textContent=fmt.number(rows.length);$('volatilitySummary').textContent=`Average absolute daily movement over ${state.volFilters.lookbackDays} calendar days · largest first`;
  $('volatilityPageInfo').textContent=`Showing ${Math.min(state.volShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('volatilityMore').hidden=state.volShown>=rows.length;
- $('volatilityTopCsv').disabled=!rows.length;$('volatilityAllCsv').disabled=!rows.length;renderStats();
+ $('volatilityTopCsv').disabled=!rows.length;$('volatilityAllCsv').disabled=!rows.length;renderStats('volatility');
 }
 function renderPredictions(){
  try{state.predictions=predictionRows(state.data,state.forecasts,formValues($('predictionFilters')));$('predictionFilterNote').textContent='The prediction covers the full session’s open-to-close return, including when generated after open. It does not predict the remaining intraday move.';}
@@ -58,7 +58,7 @@ function renderPredictions(){
  }
  if(!rows.length)emptyRow(target,6,'No available forecasts match these ranges. Widen the filters or turn off “Available forecasts only” to see missing and expired records.');
  $('predictionCount').textContent=fmt.number(rows.length);$('predictionSummary').textContent=`Sorted by absolute forecast move · ${state.metadata?.modelVersion||'Model information unavailable'}`;
- $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;
+ $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;renderStats('predictions');
 }
 function toggleWatch(symbol){if(state.watchlist.has(symbol))state.watchlist.delete(symbol);else state.watchlist.add(symbol);try{localStorage.setItem('market-pulse-watchlist',JSON.stringify([...state.watchlist]))}catch{}route();}
 function watchButton(symbol,full=false){const selected=state.watchlist.has(symbol);const n=button(full?(selected?'★ Watching':'☆ Add to watchlist'):(selected?'★':'☆'),full?'secondary-button':'watch-button',()=>toggleWatch(symbol));n.setAttribute('aria-pressed',String(selected));n.setAttribute('aria-label',(selected?'Remove ':'Add ')+symbol+(selected?' from watchlist':' to watchlist'));return n;}
@@ -74,7 +74,7 @@ function renderExplore(){
  if(!state.explore.length)emptyRow(target,6,state.mode==='watchlist'?'Your watchlist is empty or does not match this search. Use a star to save a stock.':'No match in the latest successful scan. Try a ticker or a shorter company name.');
  $('exploreResultTitle').textContent=query.trim()?'Search results':state.mode==='watchlist'?'Your watchlist':state.mode==='gainers'?'Daily gainers':state.mode==='decliners'?'Daily decliners':'Browse the market';
  $('exploreSummary').textContent=`${fmt.number(state.explore.length)} stocks · prices and changes from the latest scan`;
- $('explorePageInfo').textContent=`Showing ${Math.min(state.exploreShown,state.explore.length)} of ${fmt.number(state.explore.length)} stocks`;$('exploreMore').hidden=state.exploreShown>=state.explore.length;
+ $('explorePageInfo').textContent=`Showing ${Math.min(state.exploreShown,state.explore.length)} of ${fmt.number(state.explore.length)} stocks`;$('exploreMore').hidden=state.exploreShown>=state.explore.length;renderStats('explore');
 }
 function renderDetail(symbol,requestedDays){
  $('exploreOverview').hidden=true;const target=$('exploreDetail');target.hidden=false;target.replaceChildren();const back=el('a','← Back to explore','detail-back');back.href='#explore';target.append(back);
@@ -135,6 +135,10 @@ function renderNews(){const target=$('newsCards');target.replaceChildren();const
 
 $('volatilityFilters').addEventListener('submit',event=>{event.preventDefault();state.volShown=25;if(state.data)renderVolatility()});
 $('predictionFilters').addEventListener('submit',event=>{event.preventDefault();state.predShown=25;if(state.data)renderPredictions()});
+for(const [id,render,shown] of [['volatilityFilters',renderVolatility,'volShown'],['predictionFilters',renderPredictions,'predShown']]){
+ const form=$(id);let timer;const update=()=>{clearTimeout(timer);if(state.data&&form.checkValidity()){state[shown]=25;render()}};
+ form.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(update,180)});form.addEventListener('change',update);form.addEventListener('submit',()=>clearTimeout(timer));
+}
 $('volatilityMore').addEventListener('click',()=>{state.volShown+=25;renderVolatility()});$('predictionMore').addEventListener('click',()=>{state.predShown+=25;renderPredictions()});$('exploreMore').addEventListener('click',()=>{state.exploreShown+=25;renderExplore()});
 let searchTimer;$('stockSearch').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{state.exploreShown=25;if(state.data)renderExplore()},120)});
 for(const n of document.querySelectorAll('[data-mode]'))n.addEventListener('click',()=>{state.mode=n.dataset.mode;state.exploreShown=25;renderExplore()});
