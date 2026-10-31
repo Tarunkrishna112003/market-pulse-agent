@@ -95,6 +95,25 @@ function renderDetail(symbol,requestedDays){
  const foot=el('div',null,'table-footer');foot.append(el('span',`Showing ${Math.min(state.historyShown,view.days.length)} of ${view.days.length} sessions`));if(state.historyShown<view.days.length)foot.append(button('Show all sessions ↓','text-button',()=>{state.historyShown=view.days.length;renderDetail(stock.symbol,days)}));tableBox.append(foot);target.append(tableBox);
  target.append(el('p',`Closing-price history is shown above. Daily change is close-to-close, not the model’s open-to-close target. ${view.missingRanges?'Some daily ranges were not supplied. ':''}${maximum<365?'A full year is unavailable in this snapshot. ':''}Young listings may have less than one year of history.`,'field-note'));
 }
+let testCalendarMonth='';
+function renderTestCalendar(){
+ const dates=[...state.testing.dates].sort(),selected=$('testDay').value;
+ if(!testCalendarMonth)testCalendarMonth=selected.slice(0,7);
+ const [year,month]=testCalendarMonth.split('-').map(Number),first=new Date(Date.UTC(year,month-1,1)),count=new Date(Date.UTC(year,month,0)).getUTCDate();
+ $('testCalendarLabel').textContent=new Intl.DateTimeFormat('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'}).format(new Date(selected+'T12:00:00Z'))+' ▾';
+ $('testMonthLabel').textContent=new Intl.DateTimeFormat('en-US',{timeZone:'UTC',month:'long',year:'numeric'}).format(first);
+ $('testMonthPrevious').disabled=testCalendarMonth<=dates[0].slice(0,7);$('testMonthNext').disabled=testCalendarMonth>=dates.at(-1).slice(0,7);
+ const grid=$('testCalendarDays');grid.replaceChildren();
+ for(let i=0;i<first.getUTCDay();i++)grid.append(el('span'));
+ for(let day=1;day<=count;day++){
+  const date=testCalendarMonth+'-'+String(day).padStart(2,'0'),available=dates.includes(date),n=button(String(day),'',()=>{$('testDay').value=date;$('testCalendar').open=false;renderTestCalendar();renderTesting();$('testCalendarLabel').focus()});
+  n.disabled=!available;n.setAttribute('aria-label',date+(available?'':' — no saved test'));n.setAttribute('aria-pressed',String(date===selected));grid.append(n);
+ }
+}
+function moveTestMonth(offset){const [year,month]=testCalendarMonth.split('-').map(Number);testCalendarMonth=new Date(Date.UTC(year,month-1+offset,1)).toISOString().slice(0,7);renderTestCalendar();}
+$('testMonthPrevious').addEventListener('click',()=>moveTestMonth(-1));$('testMonthNext').addEventListener('click',()=>moveTestMonth(1));
+document.addEventListener('click',event=>{if(!$('testCalendar').contains(event.target))$('testCalendar').open=false});
+$('testCalendar').addEventListener('keydown',event=>{if(event.key==='Escape'){$('testCalendar').open=false;$('testCalendarLabel').focus()}});
 function renderTesting(){
  if(!state.testing){$('testingStatus').textContent='Saved testing data could not be loaded. Reload the preview after refreshing its published snapshots.';return;}
  const day=$('testDay').value,variant=$('testVariant').value,view=testDayView(state.testing,day,variant);state.testView=view;
@@ -137,7 +156,7 @@ try{
  if(state.metadata?.reportId!==state.data.report.id){warnings.push('Forecasts belong to a different scan and are withheld.');}
  else if(results[2].status==='fulfilled'&&results[2].value.reportId===state.data.report.id){state.forecasts=new Map(results[2].value.rows.map(f=>[f.symbol,f]));}
  else{for(const row of state.metadata.rows||[]){const forecast=row.forecasts?.find(f=>f.lookback===365);if(forecast)state.forecasts.set(row.symbol,forecast)}warnings.push('The full-universe forecast table is unavailable; only saved detailed rows can be shown.');}
- if(results[3].status==='fulfilled'){state.testing=results[3].value;for(const date of state.testing.dates){const n=el('option',date);n.value=date;$('testDay').append(n)}const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());$('testDay').value=state.testing.dates.filter(d=>d<=today).at(-1)||state.testing.dates[0];}else warnings.push('Testing results could not be loaded.');
+ if(results[3].status==='fulfilled'){state.testing=results[3].value;const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());$('testDay').value=state.testing.dates.filter(d=>d<=today).at(-1)||state.testing.dates[0];renderTestCalendar();}else warnings.push('Testing results could not be loaded.');
  const report=state.data.report;for(const id of ['volatilityFilters','predictionFilters']){$(id).elements.namedItem('days').max=report.filters.lookbackDays;$(id).elements.namedItem('days').value=Math.min(30,report.filters.lookbackDays);}
  const legacyFilters=new URLSearchParams(location.search);for(const key of ['minCap','maxCap','minMove','maxMove','days'])if(legacyFilters.has(key))$('volatilityFilters').elements.namedItem(key).value=legacyFilters.get(key);
  $('snapshotTime').textContent=time(report.createdAt);$('footerAsOf').textContent='Snapshot through '+report.end+' · Forecasts are model estimates.';
