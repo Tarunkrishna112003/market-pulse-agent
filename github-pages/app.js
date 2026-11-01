@@ -12,11 +12,11 @@ function append(parent,...children){parent.append(...children);return parent;}
 function button(text,cls,action){const n=el('button',text,cls);n.type='button';if(action)n.addEventListener('click',action);return n;}
 function notice(message,error=false){$('globalStatus').textContent=message;$('globalStatus').className='notice'+(error?' error':'');$('globalStatus').hidden=!message;}
 function formValues(form){const values=Object.fromEntries(new FormData(form));if(form.elements.namedItem('availableOnly'))values.availableOnly=form.elements.namedItem('availableOnly').checked;return values;}
-function companyCell(stock){const box=el('div',null,'company-cell'),mark=el('span',stock.symbol.slice(0,2),'stock-monogram'),text=el('div'),link=el('a',stock.symbol,'company-link');link.href='#explore/'+encodeURIComponent(stock.symbol);append(text,link,el('div',stock.name||stock.symbol,'company-name'));return append(box,mark,text);}
+function companyCell(stock,source='explore'){const box=el('div',null,'company-cell'),mark=el('span',stock.symbol.slice(0,2),'stock-monogram'),text=el('div'),link=el('a',stock.symbol,'company-link');link.href='#explore/'+encodeURIComponent(stock.symbol)+'?from='+source;append(text,link,el('div',stock.name||stock.symbol,'company-name'));return append(box,mark,text);}
 function cell(text,cls){return el('td',text,cls);}
 function emptyRow(target,columns,message){const tr=el('tr',null,'table-empty'),td=cell(message);td.colSpan=columns;append(tr,td);target.append(tr);}
 function download(headers,rows,name){const url=URL.createObjectURL(new Blob([csvText(headers,rows)],{type:'text/csv;charset=utf-8'})),a=el('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function readRoute(){const raw=location.hash.slice(1);if(raw==='mainContent')return null;const [path,query='']=raw.split('?'),[part,symbol]=path.split('/');return {section:Object.hasOwn(labels,part)?part:'volatility',symbol:symbol?decodeURIComponent(symbol):null,days:Number(new URLSearchParams(query).get('days')||365)};}
+function readRoute(){const raw=location.hash.slice(1);if(raw==='mainContent')return null;const [path,query='']=raw.split('?'),[part,symbol]=path.split('/');return {section:Object.hasOwn(labels,part)?part:'volatility',symbol:symbol?decodeURIComponent(symbol):null,days:Number(new URLSearchParams(query).get('days')||365),from:['volatility','predictions','testing','explore'].includes(new URLSearchParams(query).get('from'))?new URLSearchParams(query).get('from'):'explore'};}
 function closeMenu(){document.body.classList.remove('menu-open');$('menuButton').setAttribute('aria-expanded','false');$('navBackdrop').hidden=true;}
 function route(){
  const r=readRoute();if(!r)return;
@@ -27,7 +27,7 @@ function route(){
  if(!state.data)return;
  if(r.section==='volatility')renderVolatility();
  if(r.section==='predictions')renderPredictions();
- if(r.section==='explore'){if(r.symbol)renderDetail(r.symbol,r.days);else renderExplore();}
+ if(r.section==='explore'){if(r.symbol)renderDetail(r.symbol,r.days,r.from);else renderExplore();}
  if(r.section==='testing')renderTesting();
  document.body.dataset.section=r.section;
 }
@@ -40,7 +40,7 @@ function renderVolatility(){
  try{const options=formValues($('volatilityFilters'));state.volFilters=parseRanges(options);state.volatility=movementRows(state.data,state.volFilters);$('volatilityFilterNote').textContent='The day filter changes historical movement statistics, not model training.';}
  catch(error){$('volatilityFilterNote').textContent=error.message;return;}
  const rows=state.volatility,target=$('volatilityRows');target.replaceChildren();
- for(const stock of rows.slice(0,state.volShown)){const tr=el('tr');append(tr,append(cell(),companyCell(stock)),cell(fmt.money(stock.price)),append(cell(),el('span',fmt.pct(stock.change),'move-pill'+(stock.change<0?' negative':''))),cell(stock.average.toFixed(2)+'%','volatility-value'),cell(fmt.cap(stock.marketCap)),cell(fmt.money(stock.low30)),cell(fmt.money(stock.high30)));target.append(tr);}
+ for(const stock of rows.slice(0,state.volShown)){const tr=el('tr');append(tr,append(cell(),companyCell(stock,'volatility')),cell(fmt.money(stock.price)),append(cell(),el('span',fmt.pct(stock.change),'move-pill'+(stock.change<0?' negative':''))),cell(stock.average.toFixed(2)+'%','volatility-value'),cell(fmt.cap(stock.marketCap)),cell(fmt.money(stock.low30)),cell(fmt.money(stock.high30)));target.append(tr);}
  if(!rows.length)emptyRow(target,7,'No stocks match these ranges. Try widening the market-cap or movement filters.');
  $('volatilityCount').textContent=fmt.number(rows.length);$('volatilitySummary').textContent=`Average absolute daily movement over ${state.volFilters.lookbackDays} calendar days · largest first`;
  $('volatilityPageInfo').textContent=`Showing ${Math.min(state.volShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('volatilityMore').hidden=state.volShown>=rows.length;
@@ -54,7 +54,7 @@ function renderPredictions(){
   const tr=el('tr'),f=stock.forecast,pred=cell();
   if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(f.generatedAfterOpen)pred.append(el('span','Generated after open','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
-  append(tr,append(cell(),companyCell(stock)),cell(fmt.money(stock.price)),pred,cell(f?.targetDate||'—'),cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
+  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(f?.targetDate||'—'),cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }
  if(!rows.length)emptyRow(target,6,'No available forecasts match these ranges. Widen the filters or turn off “Available forecasts only” to see missing and expired records.');
  $('predictionCount').textContent=fmt.number(rows.length);$('predictionSummary').textContent=`Sorted by absolute forecast move · ${state.metadata?.modelVersion||'Model information unavailable'}`;
@@ -76,8 +76,8 @@ function renderExplore(){
  $('exploreSummary').textContent=`${fmt.number(state.explore.length)} stocks · prices and changes from the latest scan`;
  $('explorePageInfo').textContent=`Showing ${Math.min(state.exploreShown,state.explore.length)} of ${fmt.number(state.explore.length)} stocks`;$('exploreMore').hidden=state.exploreShown>=state.explore.length;renderStats('explore');
 }
-function renderDetail(symbol,requestedDays){
- $('exploreOverview').hidden=true;const target=$('exploreDetail');target.hidden=false;target.replaceChildren();const back=el('a','← Back to explore','detail-back');back.href='#explore';target.append(back);
+function renderDetail(symbol,requestedDays,source=readRoute()?.from||'explore'){
+ $('exploreOverview').hidden=true;const target=$('exploreDetail');target.hidden=false;target.replaceChildren();const back=el('a','← Back to '+labels[source][0].toLowerCase(),'detail-back');back.href='#'+source;target.append(back);
  const stock=state.stockMap.get(symbol.toUpperCase());if(!stock){const box=el('div',null,'surface surface-heading');append(box,el('p','This stock has no usable history in the latest scan. Its saved testing records remain available in Testing results.'));target.append(box);return;}
  const maximum=state.data.report.filters.lookbackDays;const days=Number.isInteger(requestedDays)&&requestedDays>=1?Math.min(requestedDays,maximum,365):Math.min(365,maximum);
  let view;try{view=historyView(stock,state.data.report,days)}catch(error){target.append(el('p',error.message));return;}
@@ -85,7 +85,7 @@ function renderDetail(symbol,requestedDays){
  const box=el('div',null,'surface'),heading=el('div',null,'detail-heading'),company=el('div',null,'company-cell'),description=el('div');append(description,el('h2',stock.symbol),el('p',(stock.name||stock.symbol)+' · '+(stock.exchange||'US equity')));append(company,el('span',stock.symbol.slice(0,2),'stock-monogram'),description);append(heading,company,watchButton(stock.symbol,true));box.append(heading);
  append(box,append(el('div',null,'detail-price'),el('strong',fmt.money(stock.price)),el('span','Latest recorded price · '+(stock.priceAsOf?.length>10?time(stock.priceAsOf):stock.priceDate||stock.priceAsOf||state.data.report.end))));
  const toolbar=el('div',null,'chart-toolbar'),caption=el('div',fmt.pct(view.returnPercent)+' range return'+(view.baselineDate?' · since '+view.baselineDate:''),'chart-caption '+(view.returnPercent>=0?'positive':'negative')),controls=el('div',null,'segmented-control');
- for(const [label,length] of [['1W',7],['1M',30],['3M',90],['6M',180],['1Y',365]]){const n=button(label,'',()=>{state.historyShown=60;location.hash='explore/'+encodeURIComponent(stock.symbol)+'?days='+length});n.setAttribute('aria-pressed',String(length===days));n.disabled=length>maximum;n.title=n.disabled?'This snapshot contains only '+maximum+' calendar days':length+' calendar days';controls.append(n);}
+ for(const [label,length] of [['1W',7],['1M',30],['3M',90],['6M',180],['1Y',365]]){const n=button(label,'',()=>{state.historyShown=60;location.hash='explore/'+encodeURIComponent(stock.symbol)+'?days='+length+'&from='+source});n.setAttribute('aria-pressed',String(length===days));n.disabled=length>maximum;n.title=n.disabled?'This snapshot contains only '+maximum+' calendar days':length+' calendar days';controls.append(n);}
  append(toolbar,caption,controls);box.append(toolbar,priceChart(view.days,`${stock.symbol} closing prices from ${view.firstDate||view.start} to ${view.lastDate||view.end}. Use arrow keys to inspect the chart.`));
  const stats=el('div',null,'detail-stats');for(const [label,value] of [['Range low',fmt.money(view.minLow)],['Range high',fmt.money(view.maxHigh)],['Market cap',fmt.cap(stock.marketCap)],['Trading sessions',fmt.number(view.days.length)]])append(stats,append(el('div'),el('span',label),el('strong',value)));box.append(stats);target.append(box);
  const tableBox=el('div',null,'surface');append(tableBox,append(el('div',null,'surface-heading'),append(el('div'),el('h2','Daily price history'),el('p',`${view.firstDate||view.start} to ${view.lastDate||view.end} · ${days} calendar-day window · USD`))));
@@ -123,7 +123,7 @@ function renderTesting(){
  const target=$('testRows');target.replaceChildren();
  for(const row of view.rows){const tr=el('tr'),pred=cell();pred.append(el('span',fmt.pct(row.prediction?.percent),row.prediction?.percent>=0?'positive':'negative'));if(row.prediction)pred.append(el('small',time(row.prediction.generatedAt||row.prediction.observedAt)),el('small',row.prediction.modelVersion||'Original model'));
   let status,cls='pending';if(row.compared){status=row.directionCorrect?'Correct direction':'Wrong direction';cls=row.directionCorrect?'':'wrong'}else if(variant==='late')status=row.prediction?'Awaiting actual move':'No after-open update';else if(row.entry?.status==='missed-cutoff')status='Missed 6 AM cutoff';else if(row.prediction)status=row.entry?.status==='awaiting-price'?'Awaiting closing data':'Awaiting market close';else status=row.entry?.status==='pending'?'Awaiting morning forecast':'No saved record';
-  append(tr,append(cell(),companyCell(row.stock)),pred,cell(fmt.pct(row.actual?.percent),row.actual?.percent>=0?'positive':'negative'),cell(row.error==null?'—':row.error.toFixed(2)),append(cell(),el('span',status,'result-pill '+cls)));target.append(tr);
+  append(tr,append(cell(),companyCell(row.stock,'testing')),pred,cell(fmt.pct(row.actual?.percent),row.actual?.percent>=0?'positive':'negative'),cell(row.error==null?'—':row.error.toFixed(2)),append(cell(),el('span',status,'result-pill '+cls)));target.append(tr);
  }
  $('testingStatus').textContent=`${day} · ${variant==='late'?'Separate after-open comparison':'Frozen morning comparison'} · ${view.predicted} saved forecasts${state.testing.priceErrors?.length?' · Some closing-price downloads failed; missing results remain pending.':''}`;
  $('testingFooter').textContent=`All ${view.total} stocks are shown. Volatility and prediction filters do not affect this cohort.`;$('testingCsv').disabled=false;

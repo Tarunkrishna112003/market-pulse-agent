@@ -16,6 +16,14 @@ try{
  await wait("document.body.dataset.ready==='true'||document.body.dataset.error==='true'");assert.equal(await evaluate("document.body.dataset.error||''"),'');
  assert.equal(await evaluate("document.querySelectorAll('.main-nav a').length"),4);
  assert.ok(await evaluate("document.querySelectorAll('#volatilityRows .company-link').length>0"));await screenshot('volatility-desktop');
+ for(const section of ['volatility','predictions']){
+  await route(section);if(section==='predictions')await evaluate("document.getElementById('predictionFilters').elements.availableOnly.checked=false;document.getElementById('predictionFilters').requestSubmit()");await evaluate("document.querySelector('#"+(section==='predictions'?'prediction':section)+"Rows .company-link').click()");await wait("document.body.dataset.section==='explore'&&!document.getElementById('exploreDetail').hidden");
+  assert.equal(await evaluate("document.querySelector('.detail-back').getAttribute('href')"),'#'+section);
+  await evaluate("[...document.querySelectorAll('#exploreDetail button')].find(b=>b.textContent==='1M').click()");await wait("location.hash.includes('days=30')");assert.equal(await evaluate("document.querySelector('.detail-back').getAttribute('href')"),'#'+section);
+  await evaluate("document.querySelector('.detail-back').click()");await wait("document.body.dataset.section==='"+section+"'");
+ }
+ await route('volatility');
+
  await evaluate("document.getElementById('volatilityFilters').elements.maxCap.value='50';document.getElementById('volatilityFilters').requestSubmit()");
  assert.equal(await evaluate("document.querySelectorAll('#overviewStats .summary-value')[1].textContent"),await evaluate("document.getElementById('volatilityCount').textContent"));
  await evaluate("document.getElementById('volatilityFilters').elements.maxCap.value='20';document.getElementById('volatilityFilters').elements.maxCap.dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.getElementById('volatilityCount').textContent==='0'");assert.equal(await evaluate("document.querySelectorAll('#overviewStats .summary-value')[1].textContent"),'0');
