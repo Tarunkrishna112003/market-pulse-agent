@@ -16,7 +16,7 @@ The initial job runs on GitHub-hosted Ubuntu runners. Full history collection is
 
 ## Resume and append behavior
 
-Eight deterministic symbol partitions run with at most four GitHub runners concurrently. A completed CSV is uploaded before its immutable manifest. Only then is the shard's small checkpoint advanced. Historical CSVs and manifests are never clobbered. Only the rebuildable checkpoint metadata is replaced.
+Eight deterministic symbol partitions run with at most eight GitHub runners concurrently. A completed CSV is uploaded before its immutable manifest. Only then is the shard's small checkpoint advanced. Historical CSVs and manifests are never clobbered. Only the rebuildable checkpoint metadata is replaced.
 
 A rerun skips successfully backfilled or unsupported listings and retries failures. A lost checkpoint can cause an overlapping redownload, not deletion of history. Recover by replaying immutable manifests, then rebuild the checkpoint before the next collection. Do not delete release assets as part of a normal scan.
 
@@ -35,9 +35,21 @@ Update jobs skip weekends and times outside 09:30–16:45 Eastern. No premarket/
 
 ## Scheduling and training status
 
-**This first phase archives data; it does not yet enable autonomous model training or a 30-minute timer.** GitHub's cron workflows execute from the default branch, so a workflow committed only to `testing-server` is not a functioning scheduler. Enabling a default-branch dispatcher or another GitHub-approved trigger is a separate step; do not claim scheduling works before it is installed and verified.
+The GitHub 30-minute dispatcher runs from the default branch and starts **only** the `testing-server` workflow. It is gated to regular exchange sessions, with 15-minute delayed completed daily labels after the close. GitHub's schedule is best effort; queued runs catch up from saved cursors. Main's live-site training and deployment are not used by this experiment.
 
-When the archive is ready, a training job can download CSV chunks to a temporary GitHub runner, train from a persisted checkpoint, and save a new version back to GitHub. That temporary runner disk is not the user's laptop. The daily open-to-close model can update with newly completed daily outcomes; five-minute collection does not produce a completed daily label every 30 minutes. Model continuation, temporal validation, promotion rules, and saving model checkpoints still need implementation before autonomous training is enabled.
+The workflow also archives market/sector context (`^GSPC`, `^VIX`, and sector ETFs) separately from exchange equities. Discovery refreshes daily, appends new listings to metadata, and retains inactive symbols' archived history. New listings are backfilled before incremental collection.
+
+## Checkpoint-based training
+
+`scripts/testing_server_training.py` runs on a disposable GitHub-hosted runner. It verifies CSV checksums and reconstructs a temporary SQLite training view, preferring the newest observation for overlapping daily bars. It does not modify or delete archived CSVs. If no new completed daily labels exist, it skips the data download and model fit.
+
+The first fit initializes a separate experimental LightGBM model. Later fits load that model's native weights with `init_model` and append boosting rounds. Symbol/sector IDs and feature order are persisted; incompatible code/checkpoints stop with an error rather than resetting. The features and directional objective come from the existing stock-specific model code. No calibration or historical-median model is introduced.
+
+All archived years are available. Each fit uses up to 128 replay examples per stock, spread across the available years and including 32 recent observations, to stay inside standard runner memory. This is a representative replay sample, **not every stored bar in every fitting pass**. New outcomes supply supervised labels only after the session is complete. Collected five-minute bars are retained for future intraday experiments; they are not relabeled as completed daily outcomes.
+
+The first fit uses the latest 20 completed market dates for temporal validation. Subsequent candidates are evaluated on dates later than the previous evaluation watermark; those outcomes are excluded from fitting that candidate. A continued candidate advances the testing checkpoint only if its MAE improves and direction accuracy does not worsen against its parent on those same fresh dates. Rejected candidates are retained and the old checkpoint stays active. The first checkpoint is experimental, not proof that the model beats a trading baseline. No testing checkpoint is automatically deployed to the live website.
+
+Immutable model weights, evaluation metadata and branch forecasts go to monthly `testing-stock-models-YYYYMM` releases. Only the small `checkpoint.json` and `last-evaluation.json` pointers in `testing-stock-model-index-v1` advance. Previous model files and historical data remain available.
 
 Free chart endpoints have no guaranteed service level. A free full-universe collection may take longer than 30 minutes; show actual collection lag rather than treating it as fresh. Failed tickers, missing years, unavailable symbols, and retention gaps must be reported, never filled with invented bars.
 

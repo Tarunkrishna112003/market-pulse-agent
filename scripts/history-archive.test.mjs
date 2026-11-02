@@ -49,3 +49,15 @@ test('large data collection is runner-only and immutable uploads never clobber r
  const code=await readFile('scripts/archive-stock-history.mjs','utf8'),workflow=await readFile('.github/workflows/testing-stock-history.yml','utf8');
  assert.match(code,/RUNNER_ENVIRONMENT!=='github-hosted'/);assert.match(code,/GITHUB_REF_NAME!=='testing-server'/);assert.match(code,/mutable:true/);assert.match(code,/upload\(tag,manifest.asset,bytes\)/);assert.match(workflow,/branches: \[testing-server\]/);assert.doesNotMatch(workflow,/deploy-pages|upload-pages/);
 });
+
+test('market context is archived explicitly without admitting unrelated funds as stocks',()=>{
+ assert.equal(parseArchiveChart('^GSPC',chart({meta:{instrumentType:'INDEX',exchangeName:'SNP'}}),'1d',now).status,'saved');
+ assert.equal(parseArchiveChart('XLK',chart({meta:{instrumentType:'ETF',exchangeName:'PCX'}}),'1d',now).status,'saved');
+ assert.equal(parseArchiveChart('UNRELATED_ETF',chart({meta:{instrumentType:'ETF',exchangeName:'PCX'}}),'1d',now).status,'unsupported');
+});
+
+test('unavailable histories are explicit and never erase a prior successful cursor',()=>{
+ const old={schemaVersion:1,symbols:{A:{status:'backfilled','1d':{lastTimestamp:10,lastDate:'2026-10-30'}}}};
+ const next=mergedCheckpoint(old,[{symbol:'A',status:'unavailable',error:'Chart HTTP 404'},{symbol:'NEW',status:'unavailable',error:'No history'}],now.toISOString());
+ assert.equal(next.symbols.A.status,'backfilled');assert.equal(next.symbols.A['1d'].lastTimestamp,10);assert.equal(next.symbols.NEW.status,'unavailable');assert.equal(next.symbols.NEW.lastError,'No history');
+});

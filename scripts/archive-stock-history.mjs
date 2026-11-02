@@ -5,8 +5,8 @@ import {gzipSync,gunzipSync} from 'node:zlib';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {resolve} from 'node:path';
-import {BASE_TAG,ARCHIVE_SCHEMA,CSV_COLUMNS,csvLine,barCSV,shardFor,archiveURL,discoverArchiveUniverse,parseArchiveChart,updateWindow,mergedCheckpoint,shouldCollect} from '../lib/history-archive.mjs';
-import {easternSessionClock,scheduledCloseMinute} from '../lib/trading-calendar.mjs';
+import {BASE_TAG,ARCHIVE_CONTEXT,ARCHIVE_SCHEMA,CSV_COLUMNS,csvLine,barCSV,shardFor,archiveURL,discoverArchiveUniverse,parseArchiveChart,updateWindow,mergedCheckpoint,shouldCollect} from '../lib/history-archive.mjs';
+import {easternSessionClock,scheduledCloseMinute,previousTradingDay} from '../lib/trading-calendar.mjs';
 const exec=promisify(execFile),args=new Map();for(let i=2;i<process.argv.length;i+=2)args.set(process.argv[i],process.argv[i+1]);
 if(process.env.GITHUB_ACTIONS!=='true'||process.env.RUNNER_ENVIRONMENT!=='github-hosted')throw Error('Full-history collection is restricted to GitHub-hosted runners. No laptop download is supported.');
 if(!/^[-\w]+\/[-.\w]+$/.test(process.env.GITHUB_REPOSITORY||''))throw Error('Missing repository');
@@ -31,22 +31,29 @@ if(mode==='prepare'){
  if(!(await assetNames(BASE_TAG)).has('universe.json.gz')){
   const universe=await discoverArchiveUniverse();await upload(BASE_TAG,'universe.json.gz',gzipSync(Buffer.from(JSON.stringify(universe)),{mtime:0}));
  }
- const universe=JSON.parse(gunzipSync(await download(BASE_TAG,'universe.json.gz')));
+ let universe=JSON.parse(gunzipSync(await download(BASE_TAG,(await assetNames(BASE_TAG)).has('universe-current.json.gz')?'universe-current.json.gz':'universe.json.gz')));
+ if(easternSessionClock(new Date(universe.createdAt)).date!==easternSessionClock(now).date){
+  const fresh=await discoverArchiveUniverse(),active=new Set(fresh.stocks.map(s=>s.symbol)),combined=new Map(universe.stocks.map(s=>[s.symbol,{...s,active:active.has(s.symbol)}]));for(const stock of fresh.stocks)combined.set(stock.symbol,{...stock,active:true});
+  universe={...fresh,stocks:[...combined.values()]};const bytes=gzipSync(Buffer.from(JSON.stringify(universe)),{mtime:0}),tag='testing-stock-updates-'+now.toISOString().slice(0,10);await ensureRelease(tag,archiveNotes);await upload(tag,'universe-'+run+'.json.gz',bytes);await upload(BASE_TAG,'universe-current.json.gz',bytes,{mutable:true});
+ }
+ if(!(await assetNames(BASE_TAG)).has('context-universe.json'))await upload(BASE_TAG,'context-universe.json',Buffer.from(JSON.stringify({stocks:ARCHIVE_CONTEXT.map(symbol=>({symbol,name:symbol,kind:'context',sector:'Context'}))})));
  console.log(`Archive universe: ${universe.stocks.length} listings across NASDAQ and NYSE. No cap/movement filter.`);process.exit(0);
 }
-const universe=JSON.parse(gunzipSync(await download(BASE_TAG,'universe.json.gz'))),all=universe.stocks.filter(s=>shardFor(s.symbol,shards)===shard),checkpointName=`checkpoint-${shard}.json`;
+const names=await assetNames(BASE_TAG),universe=JSON.parse(gunzipSync(await download(BASE_TAG,names.has('universe-current.json.gz')?'universe-current.json.gz':'universe.json.gz')));
+const context=names.has('context-universe.json')?JSON.parse(await download(BASE_TAG,'context-universe.json')).stocks:[];
+const all=[...universe.stocks,...context].filter(s=>shardFor(s.symbol,shards)===shard),checkpointName=`checkpoint-${shard}.json`;
 let checkpoint={schemaVersion:ARCHIVE_SCHEMA,symbols:{}};if((await assetNames(BASE_TAG)).has(checkpointName))checkpoint=JSON.parse(await download(BASE_TAG,checkpointName));
 if(mode==='summary'){
- let backfilled=0,unsupported=0,failed=0,pending=0;for(const s of all){const c=checkpoint.symbols[s.symbol];if(c?.status==='backfilled')backfilled++;else if(c?.status==='unsupported')unsupported++;else if(c?.lastError)failed++;else pending++;}
- const report={shard,universe:all.length,backfilled,unsupported,failed,pending,checkpointUpdatedAt:checkpoint.updatedAt||null};console.log(JSON.stringify(report));
+ let backfilled=0,unsupported=0,unavailable=0,failed=0,pending=0;for(const s of all){const c=checkpoint.symbols[s.symbol];if(c?.status==='backfilled')backfilled++;else if(c?.status==='unsupported')unsupported++;else if(c?.status==='unavailable')unavailable++;else if(c?.lastError)failed++;else pending++;}
+ const report={shard,universe:all.length,backfilled,unsupported,unavailable,failed,pending,checkpointUpdatedAt:checkpoint.updatedAt||null};console.log(JSON.stringify(report));
  if(process.env.GITHUB_STEP_SUMMARY)await writeFile(process.env.GITHUB_STEP_SUMMARY,`### Stock history shard ${shard}\n\n${JSON.stringify(report,null,2)}\n`);process.exit(failed||pending?1:0);
 }
 if(mode==='update'&&!shouldCollect(now)){console.log('Outside regular trading collection window; no new bars are expected.');process.exit(0);}
-const selected=mode==='backfill'?all.filter(s=>!['backfilled','unsupported'].includes(checkpoint.symbols[s.symbol]?.status)):all.filter(s=>checkpoint.symbols[s.symbol]?.status==='backfilled');
+const selected=mode==='backfill'?all.filter(s=>!['backfilled','unsupported'].includes(checkpoint.symbols[s.symbol]?.status)):all.filter(s=>{const c=checkpoint.symbols[s.symbol];return s.active!==false&&c?.status!=='unsupported'&&(c?.status==='backfilled'||!c?.lastAttemptAt||easternSessionClock(new Date(c.lastAttemptAt)).date!==easternSessionClock(now).date)});
 if(!selected.length){console.log(`Shard ${shard}: no ${mode} work.`);process.exit(0)}
 const tag=mode==='backfill'?BASE_TAG:'testing-stock-updates-'+now.toISOString().slice(0,10);await ensureRelease(tag,archiveNotes);
 // One update chunk per shard per run keeps a daily release below the 1000-asset limit.
-const batchSize=mode==='backfill'?50:selected.length;let failures=0,lastStart=0;
+const batchSize=mode==='backfill'?50:selected.length;let failures=0,unavailable=0,lastStart=0;
 async function fetchChart(symbol,interval,since){
  const url=archiveURL(symbol,interval,{now,since});let last;
  for(let attempt=0;attempt<4;attempt++){
@@ -61,18 +68,18 @@ for(let offset=0;offset<selected.length;offset+=batchSize){
  const stocks=selected.slice(offset,offset+batchSize),results=[],lines=[csvLine(CSV_COLUMNS)];let rows=0;
  for(const stock of stocks){
   try{
-   const intervals=[],daily=mode==='backfill'||easternSessionClock(now).minute>=scheduledCloseMinute(easternSessionClock(now).date)+15;
-   for(const interval of mode==='backfill'?['1d']:(daily?['5m','1d']:['5m'])){
-    const window=mode==='backfill'?{since:null,gap:null}:updateWindow(checkpoint.symbols[stock.symbol],interval,now);
+   const intervals=[],needsBackfill=mode==='backfill'||checkpoint.symbols[stock.symbol]?.status!=='backfilled',clock=easternSessionClock(now),daily=needsBackfill||clock.minute>=scheduledCloseMinute(clock.date)+15||(checkpoint.symbols[stock.symbol]?.['1d']?.lastDate||'')<previousTradingDay(clock.date);
+   for(const interval of needsBackfill?['1d']:(daily?['5m','1d']:['5m'])){
+    const window=needsBackfill?{since:null,gap:null}:updateWindow(checkpoint.symbols[stock.symbol],interval,now);
     let record=await fetchChart(stock.symbol,interval,window.since);
     if(mode==='update'&&interval==='1d'&&(record.lastSplitTimestamp||0)>(checkpoint.symbols[stock.symbol]?.['1d']?.lastSplitTimestamp||0)){record=await fetchChart(stock.symbol,'1d',null);record.warnings.push('Full-history revision appended following a newly reported stock split');}
     if(record.status==='unsupported'){results.push({symbol:stock.symbol,status:'unsupported',reason:record.reason});break;}
-    if(mode==='backfill'&&record.status!=='saved')throw Error('No completed daily bars returned for full history request');
+    if(needsBackfill&&record.status!=='saved')throw Error('No completed daily bars returned for full history request');
     for(const bar of record.bars){lines.push(barCSV(bar));rows++;}
     const {bars,...coverage}=record;intervals.push({interval,...coverage,gap:window.gap});
    }
-   if(intervals.length)results.push({symbol:stock.symbol,status:'saved',backfill:mode==='backfill',intervals});
-  }catch(error){failures++;results.push({symbol:stock.symbol,status:'error',error:error.message});}
+   if(intervals.length)results.push({symbol:stock.symbol,status:'saved',backfill:needsBackfill,intervals});
+  }catch(error){const missing=/^Chart HTTP (404|422)$|^No completed daily bars/.test(error.message);if(missing)unavailable++;else failures++;results.push({symbol:stock.symbol,status:missing?'unavailable':'error',error:error.message});}
   if((offset+results.length)%25===0)console.log(`Shard ${shard}: ${offset+results.length}/${selected.length} tickers processed; ${failures} failures`);
  }
  const bytes=gzipSync(Buffer.from(lines.join('')),{level:6,mtime:0}),hash=createHash('sha256').update(bytes).digest('hex'),stem=`${mode}-p${shard}-${run}-b${offset/batchSize}-${hash.slice(0,12)}`;
@@ -82,5 +89,6 @@ for(let offset=0;offset<selected.length;offset+=batchSize){
  checkpoint=mergedCheckpoint(checkpoint,results,now.toISOString());await upload(BASE_TAG,checkpointName,Buffer.from(JSON.stringify(checkpoint)),{mutable:true});
  console.log(`Saved ${manifest.asset}: ${rows} bars (${(bytes.length/1048576).toFixed(2)} MiB compressed).`);
 }
-console.log(`Shard ${shard} finished: ${selected.length} attempted, ${failures} failures. Failed tickers are retained for retry.`);
+console.log(`Shard ${shard} finished: ${selected.length} attempted, ${failures} request failures, ${unavailable} unavailable histories. Failed tickers are retained for retry.`);
+if(unavailable)console.log(`::warning::${unavailable} listings have no available price history in this feed. Coverage gaps are recorded; no prices were fabricated.`);
 if(failures)process.exitCode=1;
