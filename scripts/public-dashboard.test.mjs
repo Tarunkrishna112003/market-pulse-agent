@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
 for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
-const {parseRanges,movementRows,predictionRows,searchStocks,historyView,testDayView,csvText}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+const {parseRanges,movementRows,predictionRows,searchStocks,historyView,testDayView,csvText,stockPredictionView}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
 after(()=>rm(dir,{recursive:true,force:true}));
 const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
 const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
@@ -67,4 +67,22 @@ test('dashboard exposes four separate accessible sections and a complete explore
  assert.match(html,/id="volatilityFilters"/);assert.match(html,/id="predictionFilters"/);assert.match(html,/id="stockSearch" type="search"/);assert.match(html,/id="testVariant"/);
  assert.match(html,/href="#testing"/);assert.match(html,/Skip to content/);
  const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
+});
+
+test('stock details use saved history, separate late records, and require the exact next-session forecast',()=>{
+ const now=new Date('2026-11-01T18:00:00Z'),forecast={symbol:'APP',state:'estimated',returnBasis:'open-to-close',forecastModel:'supervised',sessionMode:'current-or-next',targetDate:'2026-11-02',estimatedPercent:1.2};
+ const prediction={percent:-2,generatedAt:'2026-10-30T12:00:00Z',modelVersion:'v10'};
+ const testing={entries:[{symbol:'APP',date:'2026-10-30',prediction,actual:{percent:-1},lateForecasts:[{percent:0.5,generatedAt:'2026-10-30T17:00:00Z',modelVersion:'v10'}]}]};
+ const ledger={records:[{symbol:'APP',targetDate:'2026-10-30',lookback:365,returnBasis:'open-to-close',estimatedPercent:-2,actualPercent:-1,generatedAt:prediction.generatedAt,modelVersion:'v10'},
+ {symbol:'APP',targetDate:'2026-10-29',lookback:365,returnBasis:'open-to-close',estimatedPercent:0,actualPercent:null},
+ {symbol:'APP',targetDate:'2026-10-28',lookback:30,returnBasis:'scan-to-close',estimatedPercent:9},
+ {symbol:'OTHER',targetDate:'2026-10-30',lookback:365,returnBasis:'open-to-close',estimatedPercent:9}]};
+ const view=stockPredictionView('APP',new Map([['APP',forecast]]),testing,ledger,now);
+ assert.equal(view.targetDate,'2026-11-02');assert.equal(view.next,forecast);assert.equal(view.records.length,3);
+ assert.equal(view.records.find(r=>r.record==='Frozen morning test').error,1);
+ assert.equal(view.records.find(r=>r.afterOpen).directionCorrect,false);assert.equal(view.records.find(r=>r.date==='2026-10-29').actual,null);
+ assert.equal(stockPredictionView('APP',new Map([['APP',{...forecast,targetDate:'2026-10-30'}]]),null,null,now).next,null);
+ assert.equal(stockPredictionView('UNKNOWN',new Map(),testing,ledger,now).records.length,0);
+ const duringSession=stockPredictionView('APP',new Map([['APP',forecast]]),null,null,new Date('2026-11-02T17:00:00Z'));
+ assert.equal(duringSession.targetDate,'2026-11-03');assert.equal(duringSession.next,null);assert.equal(duringSession.current,forecast);
 });

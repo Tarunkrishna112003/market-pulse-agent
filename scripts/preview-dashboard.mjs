@@ -9,7 +9,7 @@ import {createGzip} from 'node:zlib';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),snapshots=resolve(root,'work/dashboard-preview/site');
 const base='https://tarunkrishna112003.github.io/market-pulse-agent/';
-const files=['data.json','predictions.json','predictions/365.json','testing-results.json'];
+const files=['data.json','predictions.json','predictions/365.json','testing-results.json','prediction-history.json'];
 const downloads=await Promise.allSettled(files.map(async file=>{
  const target=resolve(snapshots,file);await mkdir(dirname(target),{recursive:true});
  if(!process.argv.includes('--refresh')){try{await access(target);return}catch{}}

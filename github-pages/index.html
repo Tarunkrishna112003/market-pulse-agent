@@ -24,6 +24,7 @@
 <div class="summary-grid" id="overviewStats" aria-label="Market snapshot summary"></div>
 
 <section id="panel-volatility" class="dashboard-panel" aria-labelledby="volatilityTitle">
+<div class="surface search-surface section-stock-search"><label for="volatilitySearch">Find a stock</label><div class="search-box"><span aria-hidden="true">⌕</span><input id="volatilitySearch" type="search" placeholder="Search by ticker or company name" autocomplete="off" aria-describedby="volatilitySearchHelp"></div><p id="volatilitySearchHelp">Search all scanned stocks, independently of the volatility filters. Open a stock for performance and prediction history.</p><div id="volatilitySearchResults" class="stock-search-results" aria-label="Stock search results" hidden></div><p id="volatilitySearchStatus" role="status" class="search-result-status"></p></div>
 <div class="surface filter-surface"><div class="surface-heading"><div><h2 id="volatilityTitle">Define your universe</h2><p>Screen by market size and average daily movement.</p></div><span class="subtle-tag">Historical movement</span></div>
 <form id="volatilityFilters" class="filter-grid">
 <label>Market cap · min ($B)<input name="minCap" type="number" min="0" step="any" value="20" required></label><label>Market cap · max ($B)<input name="maxCap" type="number" min="0" step="any" value="200" required></label>
@@ -36,6 +37,7 @@
 </section>
 
 <section id="panel-predictions" class="dashboard-panel" aria-labelledby="predictionTitle" hidden>
+<div class="surface search-surface section-stock-search"><label for="predictionSearch">Find a stock</label><div class="search-box"><span aria-hidden="true">⌕</span><input id="predictionSearch" type="search" placeholder="Search by ticker or company name" autocomplete="off" aria-describedby="predictionSearchHelp"></div><p id="predictionSearchHelp">Search all scanned stocks, independently of the predictions filters. Open a stock for performance and prediction history.</p><div id="predictionSearchResults" class="stock-search-results" aria-label="Stock search results" hidden></div><p id="predictionSearchStatus" role="status" class="search-result-status"></p></div>
 <div class="surface filter-surface"><div class="surface-heading"><div><h2 id="predictionTitle">Find forecasts in your range</h2><p>Filter predictions independently from the volatility report.</p></div><span class="subtle-tag">Model estimates</span></div>
 <form id="predictionFilters" class="filter-grid prediction-filter-grid">
 <label>Market cap · min ($B)<input name="minCap" type="number" min="0" step="any" value="20" required></label><label>Market cap · max ($B)<input name="maxCap" type="number" min="0" step="any" value="200" required></label>

@@ -23,6 +23,20 @@ try{
   await evaluate("document.querySelector('.detail-back').click()");await wait("document.body.dataset.section==='"+section+"'");
  }
  await route('volatility');
+ for(const [section,prefix] of [['volatility','volatility'],['predictions','prediction']]){
+  await route(section);await evaluate("document.getElementById('"+prefix+"Search').value='Apple';document.getElementById('"+prefix+"Search').dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.getElementById('"+prefix+"SearchResults').textContent.includes('AAPL')");
+  await evaluate("document.getElementById('"+prefix+"Search').value='CRDO';document.getElementById('"+prefix+"Search').dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.querySelector('#"+prefix+"SearchResults a strong')?.textContent==='CRDO'");await screenshot(prefix+'-search-desktop');
+  await evaluate("document.querySelector('#"+prefix+"SearchResults a').click()");await wait("document.getElementById('stockPredictionHistory')!==null");
+  assert.ok(await evaluate("document.querySelector('.stock-forecast-section').textContent.includes('Next trading session')"));
+  await evaluate("document.getElementById('stock-tab-predictions').click()");assert.equal(await evaluate("document.getElementById('stock-daily-price-panel').hidden"),true);
+  await evaluate("document.getElementById('stock-tab-daily-price').click()");assert.equal(await evaluate("document.getElementById('stock-predictions-panel').hidden"),true);assert.equal(await evaluate("document.getElementById('stock-daily-price-panel').hidden"),false);
+  await evaluate("document.getElementById('stock-tab-daily-price').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))");assert.equal(await evaluate("document.getElementById('stock-tab-predictions').getAttribute('aria-selected')"),'true');
+assert.ok(await evaluate("document.querySelectorAll('#stockPredictionHistory tr').length>1"));assert.ok(await evaluate("document.querySelector('.detail-price').textContent.includes('latest daily change')"));
+  assert.equal(await evaluate("document.querySelector('.detail-back').getAttribute('href')"),'#'+section);await screenshot(prefix+'-stock-predictions');
+  await evaluate("document.querySelector('.detail-back').click()");await wait("document.body.dataset.section==='"+section+"'");assert.equal(await evaluate("document.getElementById('"+prefix+"Search').value"),'CRDO');
+  await evaluate("document.getElementById('"+prefix+"Search').value='';document.getElementById('"+prefix+"Search').dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.getElementById('"+prefix+"SearchResults').hidden");
+ }
+ await route('volatility');
 
  await evaluate("document.getElementById('volatilityFilters').elements.maxCap.value='50';document.getElementById('volatilityFilters').requestSubmit()");
  assert.equal(await evaluate("document.querySelectorAll('#overviewStats .summary-value')[1].textContent"),await evaluate("document.getElementById('volatilityCount').textContent"));
@@ -37,13 +51,17 @@ try{
  await evaluate("document.querySelector('#exploreRows .company-link').click()");await wait("!document.getElementById('exploreDetail').hidden&&document.getElementById('exploreDetail').textContent.includes('CRDO')");
  assert.ok(await evaluate("document.querySelector('#exploreDetail .price-chart')!==null"));assert.ok(await evaluate("document.querySelectorAll('#exploreDetail tbody tr').length>=50"));
  await evaluate("document.querySelector('#exploreDetail .price-chart').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))");assert.equal(await evaluate("document.querySelector('#exploreDetail .chart-tooltip').hidden"),false);await screenshot('explore-detail-desktop');
- await evaluate("[...document.querySelectorAll('#exploreDetail button')].find(b=>b.textContent.includes('Show all sessions'))?.click()");assert.ok(await evaluate("document.querySelectorAll('#exploreDetail tbody tr').length>200"));
+ await evaluate("document.getElementById('stock-tab-daily-price').click()");await evaluate("[...document.querySelectorAll('#exploreDetail button')].find(b=>b.textContent.includes('Show all sessions'))?.click()");assert.equal(await evaluate("document.getElementById('stock-daily-price-panel').hidden"),false);assert.ok(await evaluate("document.querySelectorAll('#exploreDetail tbody tr').length>200"));
  await route('testing');assert.equal(await evaluate("document.querySelectorAll('#testRows tr').length"),25);
  await evaluate("document.getElementById('testCalendarLabel').click()");assert.ok(await evaluate("document.querySelectorAll('#testCalendarDays button:disabled').length>0"));
  const picked=await evaluate("const b=[...document.querySelectorAll('#testCalendarDays button:not(:disabled)')][0];const date=b.getAttribute('aria-label');b.click();date");assert.equal(await evaluate("document.getElementById('testDay').value"),picked);assert.equal(await evaluate("document.getElementById('testCalendar').open"),false);assert.equal(await evaluate("document.querySelectorAll('#testRows tr').length"),25);assert.ok(await evaluate("document.getElementById('testingStatus').textContent.includes(document.getElementById('testDay').value)"));await screenshot('testing-desktop');
  await evaluate("document.getElementById('testVariant').value='late';document.getElementById('testVariant').dispatchEvent(new Event('change'))");assert.equal(await evaluate("document.querySelectorAll('#testRows tr').length"),25);assert.ok(await evaluate("document.getElementById('testingExplanation').textContent.includes('full day')"));
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await route('volatility');await evaluate('window.scrollTo(0,0)');
  assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));await screenshot('volatility-mobile');
+ await evaluate("document.getElementById('volatilitySearch').value='CRDO';document.getElementById('volatilitySearch').dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.querySelector('#volatilitySearchResults a')!==null");assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));await screenshot('volatility-search-mobile');
+ await evaluate("document.querySelector('#volatilitySearchResults a').click()");await wait("document.getElementById('stockPredictionHistory')!==null");assert.ok(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'));await screenshot('stock-predictions-mobile');
+ await evaluate("document.querySelector('.detail-back').click()");await wait("document.body.dataset.section==='volatility'");
+
  await evaluate("document.getElementById('menuButton').click()");assert.equal(await evaluate("document.getElementById('menuButton').getAttribute('aria-expanded')"),'true');
  await evaluate("document.querySelector('[data-section=explore]').click()");await wait("document.body.dataset.section==='explore'");assert.equal(await evaluate("document.getElementById('menuButton').getAttribute('aria-expanded')"),'false');
  await evaluate("document.getElementById('stockSearch').value='';document.getElementById('stockSearch').dispatchEvent(new Event('input',{bubbles:true}))");await new Promise(r=>setTimeout(r,250));await screenshot('explore-mobile');

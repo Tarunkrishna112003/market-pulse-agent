@@ -1,6 +1,6 @@
 import {normalizeFilters} from './filters.mjs';
 import {stockHistory} from './stock-history.mjs';
-import {forecastSessionForModel,sessionExpired} from './trading-calendar.mjs';
+import {forecastSessionForModel,sessionExpired,nextForecastSession} from './trading-calendar.mjs';
 
 export function parseRanges(values){
  const number=(key,fallback)=>values[key]==null||values[key]===''?fallback:Number(values[key]);
@@ -75,4 +75,24 @@ export function testDayView(data,date,variant='morning'){
 export function csvText(headers,rows){
  const escape=value=>{let text=value==null?'':String(value);if(typeof value==='string'&&/^[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"'};
  return '\uFEFF'+[headers,...rows].map(row=>row.map(escape).join(',')).join('\r\n')+'\r\n';
+}
+
+// Only saved forecasts are displayed here; historical prices are never treated as forecasts.
+export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date()){
+ const targetDate=nextForecastSession(now),forecast=forecasts.get(symbol);
+ const next=forecast?.targetDate===targetDate&&usableForecast(forecast,now)?forecast:null;
+ const current=forecast&&usableForecast(forecast,now)&&forecast.targetDate!==targetDate?forecast:null;
+ const records=[],seen=new Set();
+ const add=row=>{
+  if(!row.date||row.date>=targetDate||!Number.isFinite(row.percent))return;
+  const key=[row.date,row.generatedAt,row.modelVersion,row.percent,row.afterOpen].join('|');if(seen.has(key))return;seen.add(key);
+  const actual=Number.isFinite(row.actual)?row.actual:null;
+  records.push({...row,actual,error:actual===null?null:Math.abs(row.percent-actual),directionCorrect:actual===null?null:Math.sign(row.percent)===Math.sign(actual)});
+ };
+ for(const entry of testing?.entries||[])if(entry.symbol===symbol){
+  if(entry.prediction)add({date:entry.date,percent:entry.prediction.percent,actual:entry.actual?.percent,generatedAt:entry.prediction.generatedAt,modelVersion:entry.prediction.modelVersion,afterOpen:false,record:'Frozen morning test'});
+  for(const late of entry.lateForecasts||[])add({date:entry.date,percent:late.percent,actual:entry.actual?.percent,generatedAt:late.generatedAt,modelVersion:late.modelVersion,afterOpen:true,record:'After-open update'});
+ }
+ for(const row of ledger?.records||[])if(row.symbol===symbol&&row.returnBasis==='open-to-close'&&row.lookback===365)add({date:row.targetDate,percent:row.estimatedPercent,actual:row.actualPercent,generatedAt:row.generatedAt,modelVersion:row.modelVersion,afterOpen:row.generatedAfterOpen===true,record:row.generatedAfterOpen?'Published after-open forecast':'Saved forecast'});
+ return {targetDate,next,current,records:records.sort((a,b)=>b.date.localeCompare(a.date)||String(b.generatedAt||'').localeCompare(String(a.generatedAt||'')))};
 }
