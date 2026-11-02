@@ -1,0 +1,42 @@
+name: Testing server 30-minute dispatcher
+on:
+  schedule:
+    # Both US Eastern offsets; the branch calendar gates actual exchange sessions.
+    - cron: '7,37 13-22 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Dispatch outside market hours for an initial archive/model check
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: testing-server-timer
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: testing-server
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check market session and dispatch the testing branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || 'false' }}
+          REPO: ${{ github.repository }}
+        run: |
+          node --input-type=module <<'JS'
+          import {shouldCollect} from './lib/history-archive.mjs';
+          import {execFileSync} from 'node:child_process';
+          if(process.env.FORCE==='true'||shouldCollect()){
+            execFileSync('gh',['workflow','run','testing-stock-history.yml','--ref','testing-server','--repo',process.env.REPO,'-f','mode=update','-f','train=true'],{stdio:'inherit'});
+            console.log('Dispatched append-only collection and checkpoint-based training on testing-server.');
+          }else console.log('Outside the regular-session collection window; no testing run needed.');
+          JS
