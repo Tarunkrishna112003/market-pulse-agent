@@ -1,0 +1,63 @@
+name: Testing server stock history archive
+on:
+  push:
+    branches: [testing-server]
+    paths:
+      - '.github/workflows/testing-stock-history.yml'
+      - 'lib/history-archive.mjs'
+      - 'scripts/archive-stock-history.mjs'
+      - 'scripts/history-archive.test.mjs'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Backfill all available daily history, or append new 5-minute/completed daily bars
+        type: choice
+        options: [backfill, update]
+        default: backfill
+permissions:
+  contents: write
+concurrency:
+  group: testing-server-history
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref_name == 'testing-server'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test append-only archive and market calendar
+        run: node --test scripts/history-archive.test.mjs
+      - name: Create or resume the GitHub-hosted history archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/archive-stock-history.mjs --mode prepare
+  archive:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Archive provider-available stock history on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE_MODE: ${{ inputs.mode || 'backfill' }}
+          ARCHIVE_SHARD: ${{ matrix.shard }}
+        run: node scripts/archive-stock-history.mjs --mode "$ARCHIVE_MODE" --shard "$ARCHIVE_SHARD"
+      - name: Report coverage and unresolved tickers
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE_SHARD: ${{ matrix.shard }}
+        run: node scripts/archive-stock-history.mjs --mode summary --shard "$ARCHIVE_SHARD"

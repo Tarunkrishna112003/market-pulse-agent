@@ -1,0 +1,86 @@
+// Run on GitHub-hosted runners only. Raw history is stored as immutable release assets.
+import {mkdir,readFile,writeFile,stat} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {gzipSync,gunzipSync} from 'node:zlib';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {resolve} from 'node:path';
+import {BASE_TAG,ARCHIVE_SCHEMA,CSV_COLUMNS,csvLine,barCSV,shardFor,archiveURL,discoverArchiveUniverse,parseArchiveChart,updateWindow,mergedCheckpoint,shouldCollect} from '../lib/history-archive.mjs';
+import {easternSessionClock,scheduledCloseMinute} from '../lib/trading-calendar.mjs';
+const exec=promisify(execFile),args=new Map();for(let i=2;i<process.argv.length;i+=2)args.set(process.argv[i],process.argv[i+1]);
+if(process.env.GITHUB_ACTIONS!=='true'||process.env.RUNNER_ENVIRONMENT!=='github-hosted')throw Error('Full-history collection is restricted to GitHub-hosted runners. No laptop download is supported.');
+if(!/^[-\w]+\/[-.\w]+$/.test(process.env.GITHUB_REPOSITORY||''))throw Error('Missing repository');
+if(process.env.GITHUB_REF_NAME!=='testing-server')throw Error('Archive jobs run only on testing-server');
+const mode=args.get('--mode')||'backfill',shard=Number(args.get('--shard')||0),shards=8;
+if(!['prepare','backfill','update','summary'].includes(mode)||!Number.isInteger(shard)||shard<0||shard>=shards)throw Error('Invalid archive mode/shard');
+const now=new Date(),repo=process.env.GITHUB_REPOSITORY,run=process.env.GITHUB_RUN_ID+'-'+process.env.GITHUB_RUN_ATTEMPT,root=resolve('work/github-history');await mkdir(root,{recursive:true});
+async function gh(...a){return (await exec('gh',[...a,'--repo',repo],{maxBuffer:16*1024*1024})).stdout;}
+async function releaseExists(tag){try{return JSON.parse(await gh('release','view',tag,'--json','tagName')).tagName===tag}catch(e){if(/release not found|404|Not Found/i.test(e.stderr||''))return false;throw e}}
+async function ensureRelease(tag,notes){if(!await releaseExists(tag)){try{await gh('release','create',tag,'--target','testing-server','--prerelease','--title',tag,'--notes',notes)}catch(error){if(!await releaseExists(tag))throw error}}}
+async function assetNames(tag){return new Set(JSON.parse(await gh('release','view',tag,'--json','assets')).assets.map(a=>a.name));}
+async function download(tag,name){const folder=resolve(root,'downloads',tag);await mkdir(folder,{recursive:true});await gh('release','download',tag,'--pattern',name,'--dir',folder,'--clobber');return readFile(resolve(folder,name));}
+async function upload(tag,name,bytes,{mutable=false}={}){
+ if(bytes.length>=500*1024*1024)throw Error('Archive chunk exceeds 500 MiB safety limit');
+ const path=resolve(root,name);await writeFile(path,bytes);
+ if(!mutable&&(await assetNames(tag)).has(name)){const remote=await download(tag,name);if(!remote.equals(bytes))throw Error('Immutable asset conflict: '+name);return;}
+ await gh('release','upload',tag,path,...(mutable?['--clobber']:[]));
+}
+const archiveNotes='Testing-server historical stock dataset, schema v1. Immutable gzip CSV history and manifests; checkpoint assets are rebuildable metadata. Current listings, provider-available daily history; not a survivorship-free database. No live-site deployment.';
+if(mode==='prepare'){
+ await ensureRelease(BASE_TAG,archiveNotes);
+ if(!(await assetNames(BASE_TAG)).has('universe.json.gz')){
+  const universe=await discoverArchiveUniverse();await upload(BASE_TAG,'universe.json.gz',gzipSync(Buffer.from(JSON.stringify(universe)),{mtime:0}));
+ }
+ const universe=JSON.parse(gunzipSync(await download(BASE_TAG,'universe.json.gz')));
+ console.log(`Archive universe: ${universe.stocks.length} listings across NASDAQ and NYSE. No cap/movement filter.`);process.exit(0);
+}
+const universe=JSON.parse(gunzipSync(await download(BASE_TAG,'universe.json.gz'))),all=universe.stocks.filter(s=>shardFor(s.symbol,shards)===shard),checkpointName=`checkpoint-${shard}.json`;
+let checkpoint={schemaVersion:ARCHIVE_SCHEMA,symbols:{}};if((await assetNames(BASE_TAG)).has(checkpointName))checkpoint=JSON.parse(await download(BASE_TAG,checkpointName));
+if(mode==='summary'){
+ let backfilled=0,unsupported=0,failed=0,pending=0;for(const s of all){const c=checkpoint.symbols[s.symbol];if(c?.status==='backfilled')backfilled++;else if(c?.status==='unsupported')unsupported++;else if(c?.lastError)failed++;else pending++;}
+ const report={shard,universe:all.length,backfilled,unsupported,failed,pending,checkpointUpdatedAt:checkpoint.updatedAt||null};console.log(JSON.stringify(report));
+ if(process.env.GITHUB_STEP_SUMMARY)await writeFile(process.env.GITHUB_STEP_SUMMARY,`### Stock history shard ${shard}\n\n${JSON.stringify(report,null,2)}\n`);process.exit(failed||pending?1:0);
+}
+if(mode==='update'&&!shouldCollect(now)){console.log('Outside regular trading collection window; no new bars are expected.');process.exit(0);}
+const selected=mode==='backfill'?all.filter(s=>!['backfilled','unsupported'].includes(checkpoint.symbols[s.symbol]?.status)):all.filter(s=>checkpoint.symbols[s.symbol]?.status==='backfilled');
+if(!selected.length){console.log(`Shard ${shard}: no ${mode} work.`);process.exit(0)}
+const tag=mode==='backfill'?BASE_TAG:'testing-stock-updates-'+now.toISOString().slice(0,10);await ensureRelease(tag,archiveNotes);
+// One update chunk per shard per run keeps a daily release below the 1000-asset limit.
+const batchSize=mode==='backfill'?50:selected.length;let failures=0,lastStart=0;
+async function fetchChart(symbol,interval,since){
+ const url=archiveURL(symbol,interval,{now,since});let last;
+ for(let attempt=0;attempt<4;attempt++){
+  const delay=Math.max(0,900-(Date.now()-lastStart));if(delay)await new Promise(r=>setTimeout(r,delay));lastStart=Date.now();
+  try{const response=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(30000)});
+   if(!response.ok){const error=Error('Chart HTTP '+response.status);error.retryable=response.status===429||response.status>=500;const retry=Number(response.headers.get('retry-after'));error.wait=Number.isFinite(retry)?Math.min(180000,retry*1000):0;throw error}
+   return parseArchiveChart(symbol,await response.json(),interval,now);
+  }catch(error){last=error;if(error.retryable===false||attempt===3)break;await new Promise(r=>setTimeout(r,Math.max(error.wait||0,5000*2**attempt)));}
+ }throw last;
+}
+for(let offset=0;offset<selected.length;offset+=batchSize){
+ const stocks=selected.slice(offset,offset+batchSize),results=[],lines=[csvLine(CSV_COLUMNS)];let rows=0;
+ for(const stock of stocks){
+  try{
+   const intervals=[],daily=mode==='backfill'||easternSessionClock(now).minute>=scheduledCloseMinute(easternSessionClock(now).date)+15;
+   for(const interval of mode==='backfill'?['1d']:(daily?['5m','1d']:['5m'])){
+    const window=mode==='backfill'?{since:null,gap:null}:updateWindow(checkpoint.symbols[stock.symbol],interval,now);
+    let record=await fetchChart(stock.symbol,interval,window.since);
+    if(mode==='update'&&interval==='1d'&&(record.lastSplitTimestamp||0)>(checkpoint.symbols[stock.symbol]?.['1d']?.lastSplitTimestamp||0)){record=await fetchChart(stock.symbol,'1d',null);record.warnings.push('Full-history revision appended following a newly reported stock split');}
+    if(record.status==='unsupported'){results.push({symbol:stock.symbol,status:'unsupported',reason:record.reason});break;}
+    if(mode==='backfill'&&record.status!=='saved')throw Error('No completed daily bars returned for full history request');
+    for(const bar of record.bars){lines.push(barCSV(bar));rows++;}
+    const {bars,...coverage}=record;intervals.push({interval,...coverage,gap:window.gap});
+   }
+   if(intervals.length)results.push({symbol:stock.symbol,status:'saved',backfill:mode==='backfill',intervals});
+  }catch(error){failures++;results.push({symbol:stock.symbol,status:'error',error:error.message});}
+  if((offset+results.length)%25===0)console.log(`Shard ${shard}: ${offset+results.length}/${selected.length} tickers processed; ${failures} failures`);
+ }
+ const bytes=gzipSync(Buffer.from(lines.join('')),{level:6,mtime:0}),hash=createHash('sha256').update(bytes).digest('hex'),stem=`${mode}-p${shard}-${run}-b${offset/batchSize}-${hash.slice(0,12)}`;
+ const manifest={schemaVersion:ARCHIVE_SCHEMA,mode,shard,shards,createdAt:now.toISOString(),source:'Yahoo Finance chart',sourceCommit:process.env.GITHUB_SHA,asset:stem+'.csv.gz',sha256:hash,rows,columns:CSV_COLUMNS,results};
+ // Commit data first, then its immutable manifest, then advance the rebuildable cursor.
+ await upload(tag,manifest.asset,bytes);await upload(tag,stem+'.manifest.json',Buffer.from(JSON.stringify(manifest)));
+ checkpoint=mergedCheckpoint(checkpoint,results,now.toISOString());await upload(BASE_TAG,checkpointName,Buffer.from(JSON.stringify(checkpoint)),{mutable:true});
+ console.log(`Saved ${manifest.asset}: ${rows} bars (${(bytes.length/1048576).toFixed(2)} MiB compressed).`);
+}
+console.log(`Shard ${shard} finished: ${selected.length} attempted, ${failures} failures. Failed tickers are retained for retry.`);
+if(failures)process.exitCode=1;
