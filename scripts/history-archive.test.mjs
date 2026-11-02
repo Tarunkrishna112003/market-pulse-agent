@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {shardFor,csvLine,archiveURL,discoverArchiveUniverse,parseArchiveChart,mergedCheckpoint,updateWindow,shouldCollect} from '../lib/history-archive.mjs';
+import {archiveProviderSymbol,shardFor,csvLine,archiveURL,discoverArchiveUniverse,parseArchiveChart,mergedCheckpoint,updateWindow,shouldCollect} from '../lib/history-archive.mjs';
 const now=new Date('2026-11-02T22:00:00Z');
 const epoch=s=>Date.parse(s)/1000;
 function chart({timestamps=[epoch('2026-10-30T13:30:00Z')],meta={},quote={}}={}){return {chart:{result:[{meta:{instrumentType:'EQUITY',exchangeName:'NMS',currency:'USD',...meta},timestamp:timestamps,indicators:{quote:[{open:[100],high:[105],low:[98],close:[103],volume:[1000],...quote}],adjclose:[{adjclose:[102]}]},events:{splits:{a:{date:timestamps[0],numerator:2,denominator:1}}}}]}}}
@@ -18,6 +18,7 @@ test('daily backfill begins before 1970 and intraday requests respect retention'
  assert.equal(archiveURL('BRK.B','1d',{now}).searchParams.get('period1'),'-2208988800');assert.ok(archiveURL('BRK.B','1d',{now}).pathname.endsWith('BRK-B'));
  assert.equal(Number(archiveURL('AAPL','5m',{now,since:0}).searchParams.get('period1')),now.getTime()/1000-58*86400);
  assert.throws(()=>archiveURL('AAPL','1m',{now}),/Unsupported/);
+ assert.equal(archiveProviderSymbol('AKO/A'),'AKO-A');assert.equal(archiveProviderSymbol('ACP^A'),'ACP-PA');assert.equal(archiveProviderSymbol('^GSPC'),'^GSPC');
 });
 test('archive preserves price, adjustment and action fields, and rejects malformed bars',()=>{
  const data=parseArchiveChart('CRDO',chart(), '1d',now);assert.equal(data.status,'saved');assert.equal(data.bars[0].close,103);assert.equal(data.bars[0].adjusted_close,102);assert.ok(data.bars[0].corporate_actions.includes('splits'));assert.equal(data.bars[0].session_date,'2026-10-30');
