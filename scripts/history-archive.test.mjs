@@ -84,3 +84,9 @@ test('late scans catch up completed daily labels and initial half-hours stay in 
  assert.equal(initialHalfHourStart(new Date('2026-11-03T02:00:00Z')),epoch('2026-11-02T20:30:00Z'));
  assert.equal(initialHalfHourStart(new Date('2026-11-02T14:37:00Z')),epoch('2026-10-30T19:30:00Z'));
 });
+
+test('quiet stocks with no interval trades do not create synthetic bars or false network failures',()=>{
+ const payload=chart();delete payload.chart.result[0].timestamp;
+ const empty=parseArchiveChart('QUIET',payload,'30m',now);assert.equal(empty.status,'empty');assert.deepEqual(empty.bars,[]);
+ assert.throws(()=>parseArchiveChart('QUIET',payload,'1d',now),/Missing chart arrays/);
+});
