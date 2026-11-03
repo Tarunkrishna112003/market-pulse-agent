@@ -51,8 +51,14 @@ def main():
         if data.empty:raise ValueError('Missing source '+symbol)
         data.index=pd.to_datetime(data.index).tz_localize(None)
         if data.index.has_duplicates or not data.index.is_monotonic_increasing:raise ValueError('Invalid timestamps')
-        if ((data.Open<=0)|(data.Close<=0)|(data.High<data.Close)|(data.Low>data.Close)).any():
-            raise ValueError('Malformed OHLC')
+        if not np.isfinite(data.Close).all() or (data.Close<=0).any():
+            raise ValueError('Invalid closing-price context '+symbol)
+        if symbol=='CRDO':
+            # Adjusted floating-point OHLC can differ by rounding at extrema.
+            tolerance=data.Close.abs()*1e-6
+            invalid=((data.Open<=0)|(data.High+tolerance<data[['Open','Close']].max(axis=1))|
+                     (data.Low-tolerance>data[['Open','Close']].min(axis=1)))
+            if invalid.any():raise ValueError('Malformed CRDO OHLC: '+str(data.index[invalid].tolist()))
         return data
     bars=download('CRDO')
     frame=context_samples(bars,{key:download(symbol) for key,symbol in
