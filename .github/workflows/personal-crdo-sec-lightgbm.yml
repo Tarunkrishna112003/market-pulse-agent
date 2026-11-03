@@ -1,0 +1,34 @@
+name: Personal CRDO prices SEC and analyst test
+on:
+  push:
+    branches: [personal-test]
+    paths:
+      - scripts/personal_crdo_sources.py
+      - scripts/personal_crdo_sources_test.py
+      - scripts/personal_crdo_sec_lightgbm.py
+      - .github/workflows/personal-crdo-sec-lightgbm.yml
+permissions:
+  contents: read
+concurrency:
+  group: personal-crdo-sec-lightgbm
+  cancel-in-progress: false
+jobs:
+  test:
+    if: github.ref_name == 'personal-test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OMP_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+      SEC_USER_AGENT: 'MarketPulsePersonalResearch/1.0 tdodda@asu.edu'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install bounded CPU dependencies
+        run: python -m pip install 'lightgbm==4.6.0' 'numpy==1.26.4' 'pandas==2.2.3' 'yfinance==0.2.66' 'beautifulsoup4==4.13.4'
+      - name: Test dated financial and analyst joins
+        run: python -m unittest discover -s scripts -p personal_crdo_sources_test.py
+      - name: Train CRDO LightGBM and display source audit and last 30 session results
+        run: python scripts/personal_crdo_sec_lightgbm.py
