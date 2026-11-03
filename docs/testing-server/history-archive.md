@@ -24,14 +24,14 @@ Every append carries its observation time. Consumers merge by `(symbol, interval
 
 ## Running the jobs
 
-Pushing archive code to `testing-server` triggers the initial backfill. In Actions, **Testing server stock history archive** can also be run manually against `testing-server`:
+Pushing archive code to `testing-server` starts a backfill for partitions without history; partitions that already have history append/catch up instead. In Actions, **Testing server stock history archive** can also be run manually against `testing-server`:
 
 - `mode=backfill`: complete or resume initial daily histories.
 - `mode=update`: append recent completed 30-minute bars, plus completed daily bars after the scheduled close and a 15-minute delay. Updated CSVs/manifests are stored in `testing-stock-updates-YYYY-MM-DD` releases.
 
 Updates request an overlap around the last saved bar, so a delayed run catches up rather than discarding everything older than its most recent 30 minutes. Initial intraday collection starts at the most recent completed half-hour; later runs catch up from the saved half-hour cursor. The provider has limited intraday retention; gaps older than the configured 58-day safe window are explicitly reported. Failed requests never advance a ticker's data watermark.
 
-Update jobs skip weekends and times outside 09:30–16:45 Eastern. No premarket/after-hours feature training is enabled. Daily bars and the final 30-minute bar remain excluded until complete. After early closes, the same close-time checks govern completed daily labels.
+Regular intraday scans run 09:30–16:45 Eastern (or until 45 minutes after an early close). Delayed runs and closing retries may also catch up missing completed daily sessions outside that window. No premarket/after-hours feature training is enabled. Daily bars and the final 30-minute bar remain excluded until complete. After early closes, the same close-time checks govern completed daily labels.
 
 ## Scheduling and training status
 
@@ -51,7 +51,7 @@ The first fit uses the latest 20 completed market dates for temporal validation.
 
 Immutable model weights, evaluation metadata and branch forecasts go to monthly `testing-stock-models-YYYYMM` releases. Only the small `checkpoint.json` and `last-evaluation.json` pointers in `testing-stock-model-index-v1` advance. Previous model files and historical data remain available.
 
-Free chart endpoints have no guaranteed service level. A free full-universe collection may take longer than 30 minutes; show actual collection lag rather than treating it as fresh. Failed tickers, missing years, unavailable symbols, and retention gaps must be reported, never filled with invented bars.
+Free chart endpoints have no guaranteed service level. A free full-universe collection may take longer than 30 minutes; show actual collection lag rather than treating it as fresh. Fingerprints in the small cursor metadata suppress unchanged overlapping rows; source revisions are appended rather than replacing their originals. Failed tickers, missing years, unavailable symbols, and retention gaps must be reported, never filled with invented bars.
 
 ## GitHub limits
 

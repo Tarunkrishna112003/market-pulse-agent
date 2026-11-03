@@ -59,7 +59,7 @@ jobs:
       - name: Archive provider-available stock history on GitHub
         env:
           GH_TOKEN: ${{ github.token }}
-          ARCHIVE_MODE: ${{ inputs.mode || 'backfill' }}
+          ARCHIVE_MODE: ${{ inputs.mode || 'auto' }}
           ARCHIVE_SHARD: ${{ matrix.shard }}
         run: node scripts/archive-stock-history.mjs --mode "$ARCHIVE_MODE" --shard "$ARCHIVE_SHARD"
       - name: Report coverage and unresolved tickers

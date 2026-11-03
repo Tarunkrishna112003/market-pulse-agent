@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {archiveProviderSymbol,shardFor,csvLine,archiveURL,discoverArchiveUniverse,parseArchiveChart,mergedCheckpoint,updateWindow,shouldCollect} from '../lib/history-archive.mjs';
+import {archiveProviderSymbol,shardFor,csvLine,archiveURL,discoverArchiveUniverse,parseArchiveChart,mergedCheckpoint,updateWindow,shouldCollect,lastCompletedDailySession,initialHalfHourStart,changedArchiveBars} from '../lib/history-archive.mjs';
 const now=new Date('2026-11-02T22:00:00Z');
 const epoch=s=>Date.parse(s)/1000;
 function chart({timestamps=[epoch('2026-10-30T13:30:00Z')],meta={},quote={}}={}){return {chart:{result:[{meta:{instrumentType:'EQUITY',exchangeName:'NMS',currency:'USD',...meta},timestamp:timestamps,indicators:{quote:[{open:[100],high:[105],low:[98],close:[103],volume:[1000],...quote}],adjclose:[{adjclose:[102]}]},events:{splits:{a:{date:timestamps[0],numerator:2,denominator:1}}}}]}}}
@@ -69,4 +69,18 @@ test('GitHub service failures are retried, while permanent errors are reported',
  const value=await withArchiveRetry(async()=>{if(++calls<3)throw Error('HTTP 500');return 'saved'},{sleep:async n=>delays.push(n)});
  assert.equal(value,'saved');assert.equal(calls,3);assert.deepEqual(delays,[2000,4000]);
  await assert.rejects(()=>withArchiveRetry(async()=>{throw Error('HTTP 404')},{sleep:async()=>assert.fail('Permanent errors must not be retried')}),/404/);
+});
+
+test('repeat scans add only new bars or changed revisions; original records remain untouched',()=>{
+ const first=parseArchiveChart('CRDO',chart(),'1d',now),saved=changedArchiveBars(first);
+ assert.equal(saved.bars.length,1);
+ assert.equal(changedArchiveBars(first,{recentBarHashes:saved.recentBarHashes}).bars.length,0);
+ const changed={...first,bars:first.bars.map(b=>({...b,close:b.close+1}))};
+ assert.equal(changedArchiveBars(changed,{recentBarHashes:saved.recentBarHashes}).bars.length,1);assert.equal(first.bars[0].close,103);
+});
+test('late scans catch up completed daily labels and initial half-hours stay in regular sessions',()=>{
+ assert.equal(lastCompletedDailySession(new Date('2026-11-03T02:00:00Z')),'2026-11-02');
+ assert.equal(lastCompletedDailySession(new Date('2026-11-02T15:00:00Z')),'2026-10-30');
+ assert.equal(initialHalfHourStart(new Date('2026-11-03T02:00:00Z')),epoch('2026-11-02T20:30:00Z'));
+ assert.equal(initialHalfHourStart(new Date('2026-11-02T14:37:00Z')),epoch('2026-10-30T19:30:00Z'));
 });

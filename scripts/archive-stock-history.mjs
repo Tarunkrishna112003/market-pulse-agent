@@ -6,14 +6,14 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {resolve} from 'node:path';
 import {withArchiveRetry} from '../lib/archive-retry.mjs';
-import {BASE_TAG,ARCHIVE_CONTEXT,ARCHIVE_SCHEMA,CSV_COLUMNS,csvLine,barCSV,shardFor,archiveURL,discoverArchiveUniverse,parseArchiveChart,updateWindow,mergedCheckpoint,shouldCollect} from '../lib/history-archive.mjs';
+import {BASE_TAG,ARCHIVE_CONTEXT,ARCHIVE_SCHEMA,CSV_COLUMNS,csvLine,barCSV,shardFor,archiveURL,discoverArchiveUniverse,parseArchiveChart,updateWindow,mergedCheckpoint,shouldCollect,lastCompletedDailySession,changedArchiveBars} from '../lib/history-archive.mjs';
 import {easternSessionClock,scheduledCloseMinute,previousTradingDay} from '../lib/trading-calendar.mjs';
 const exec=promisify(execFile),args=new Map();for(let i=2;i<process.argv.length;i+=2)args.set(process.argv[i],process.argv[i+1]);
 if(process.env.GITHUB_ACTIONS!=='true'||process.env.RUNNER_ENVIRONMENT!=='github-hosted')throw Error('Full-history collection is restricted to GitHub-hosted runners. No laptop download is supported.');
 if(!/^[-\w]+\/[-.\w]+$/.test(process.env.GITHUB_REPOSITORY||''))throw Error('Missing repository');
 if(process.env.GITHUB_REF_NAME!=='testing-server')throw Error('Archive jobs run only on testing-server');
-const mode=args.get('--mode')||'backfill',shard=Number(args.get('--shard')||0),shards=8;
-if(!['prepare','backfill','update','summary'].includes(mode)||!Number.isInteger(shard)||shard<0||shard>=shards)throw Error('Invalid archive mode/shard');
+let mode=args.get('--mode')||'backfill';const shard=Number(args.get('--shard')||0),shards=8;
+if(!['prepare','backfill','update','summary','auto'].includes(mode)||!Number.isInteger(shard)||shard<0||shard>=shards)throw Error('Invalid archive mode/shard');
 const now=new Date(),repo=process.env.GITHUB_REPOSITORY,run=process.env.GITHUB_RUN_ID+'-'+process.env.GITHUB_RUN_ATTEMPT,root=resolve('work/github-history');await mkdir(root,{recursive:true});
 async function gh(...a){return withArchiveRetry(async()=>(await exec('gh',[...a,'--repo',repo],{maxBuffer:16*1024*1024})).stdout);}
 async function releaseExists(tag){try{return JSON.parse(await gh('release','view',tag,'--json','tagName')).tagName===tag}catch(e){if(/release not found|404|Not Found/i.test(e.stderr||''))return false;throw e}}
@@ -44,13 +44,15 @@ const names=await assetNames(BASE_TAG),universe=JSON.parse(gunzipSync(await down
 const context=names.has('context-universe.json')?JSON.parse(await download(BASE_TAG,'context-universe.json')).stocks:[];
 const all=[...universe.stocks,...context].filter(s=>shardFor(s.symbol,shards)===shard),checkpointName=`checkpoint-${shard}.json`;
 let checkpoint={schemaVersion:ARCHIVE_SCHEMA,symbols:{}};if((await assetNames(BASE_TAG)).has(checkpointName))checkpoint=JSON.parse(await download(BASE_TAG,checkpointName));
+if(mode==='auto')mode=Object.values(checkpoint.symbols).some(s=>s.status==='backfilled')?'update':'backfill';
 if(mode==='summary'){
  let backfilled=0,unsupported=0,unavailable=0,failed=0,pending=0;for(const s of all){const c=checkpoint.symbols[s.symbol];if(c?.status==='backfilled')backfilled++;else if(c?.status==='unsupported')unsupported++;else if(c?.status==='unavailable')unavailable++;else if(c?.lastError)failed++;else pending++;}
  const report={shard,universe:all.length,backfilled,unsupported,unavailable,failed,pending,checkpointUpdatedAt:checkpoint.updatedAt||null};console.log(JSON.stringify(report));
  if(process.env.GITHUB_STEP_SUMMARY)await writeFile(process.env.GITHUB_STEP_SUMMARY,`### Stock history shard ${shard}\n\n${JSON.stringify(report,null,2)}\n`);process.exit(failed||pending?1:0);
 }
-if(mode==='update'&&!shouldCollect(now)){console.log('Outside regular trading collection window; no new bars are expected.');process.exit(0);}
-const selected=mode==='backfill'?all.filter(s=>!['backfilled','unsupported'].includes(checkpoint.symbols[s.symbol]?.status)):all.filter(s=>{const c=checkpoint.symbols[s.symbol];return s.active!==false&&c?.status!=='unsupported'&&(c?.status==='backfilled'||!c?.lastAttemptAt||easternSessionClock(new Date(c.lastAttemptAt)).date!==easternSessionClock(now).date)});
+const completedSession=lastCompletedDailySession(now),regularCollection=shouldCollect(now),needsCatchup=s=>s.active!==false&&checkpoint.symbols[s.symbol]?.status==='backfilled'&&(checkpoint.symbols[s.symbol]?.['1d']?.lastDate||'')<completedSession;
+if(mode==='update'&&!regularCollection&&!all.some(needsCatchup)){console.log('Outside trading hours and completed daily history is current; no new bars needed.');process.exit(0);}
+const selected=mode==='backfill'?all.filter(s=>!['backfilled','unsupported'].includes(checkpoint.symbols[s.symbol]?.status)):all.filter(s=>{const c=checkpoint.symbols[s.symbol];return (regularCollection||needsCatchup(s))&&s.active!==false&&c?.status!=='unsupported'&&(c?.status==='backfilled'||!c?.lastAttemptAt||easternSessionClock(new Date(c.lastAttemptAt)).date!==easternSessionClock(now).date)});
 if(!selected.length){console.log(`Shard ${shard}: no ${mode} work.`);process.exit(0)}
 const tag=mode==='backfill'?BASE_TAG:'testing-stock-updates-'+now.toISOString().slice(0,10);await ensureRelease(tag,archiveNotes);
 // One update chunk per shard per run keeps a daily release below the 1000-asset limit.
@@ -68,19 +70,20 @@ async function fetchChart(symbol,interval,since){
 for(let offset=0;offset<selected.length;offset+=batchSize){
  const stocks=selected.slice(offset,offset+batchSize),results=[],lines=[csvLine(CSV_COLUMNS)];let rows=0;
  for(const stock of stocks){
+  const intervals=[],needsBackfill=mode==='backfill'||checkpoint.symbols[stock.symbol]?.status!=='backfilled',clock=easternSessionClock(now),daily=needsBackfill||clock.minute>=scheduledCloseMinute(clock.date)+15||(checkpoint.symbols[stock.symbol]?.['1d']?.lastDate||'')<previousTradingDay(clock.date);
   try{
-   const intervals=[],needsBackfill=mode==='backfill'||checkpoint.symbols[stock.symbol]?.status!=='backfilled',clock=easternSessionClock(now),daily=needsBackfill||clock.minute>=scheduledCloseMinute(clock.date)+15||(checkpoint.symbols[stock.symbol]?.['1d']?.lastDate||'')<previousTradingDay(clock.date);
-   for(const interval of needsBackfill?['1d']:(daily?['30m','1d']:['30m'])){
+   for(const interval of needsBackfill?['1d']:(daily?['1d','30m']:['30m'])){
     const window=needsBackfill?{since:null,gap:null}:updateWindow(checkpoint.symbols[stock.symbol],interval,now);
     let record=await fetchChart(stock.symbol,interval,window.since);
     if(mode==='update'&&interval==='1d'&&(record.lastSplitTimestamp||0)>(checkpoint.symbols[stock.symbol]?.['1d']?.lastSplitTimestamp||0)){record=await fetchChart(stock.symbol,'1d',null);record.warnings.push('Full-history revision appended following a newly reported stock split');}
     if(record.status==='unsupported'){results.push({symbol:stock.symbol,status:'unsupported',reason:record.reason});break;}
     if(needsBackfill&&record.status!=='saved')throw Error('No completed daily bars returned for full history request');
+    record=changedArchiveBars(record,checkpoint.symbols[stock.symbol]?.[interval]);
     for(const bar of record.bars){lines.push(barCSV(bar));rows++;}
     const {bars,...coverage}=record;intervals.push({interval,...coverage,gap:window.gap});
    }
    if(intervals.length)results.push({symbol:stock.symbol,status:'saved',backfill:needsBackfill,intervals});
-  }catch(error){const missing=/^Chart HTTP (404|422)$|^No completed daily bars/.test(error.message);if(missing)unavailable++;else failures++;results.push({symbol:stock.symbol,status:missing?'unavailable':'error',error:error.message});}
+  }catch(error){if(intervals.length)results.push({symbol:stock.symbol,status:'saved',backfill:needsBackfill,intervals});const missing=/^Chart HTTP (404|422)$|^No completed daily bars/.test(error.message);if(missing)unavailable++;else failures++;results.push({symbol:stock.symbol,status:missing?'unavailable':'error',error:error.message});}
   if((offset+results.length)%25===0)console.log(`Shard ${shard}: ${offset+results.length}/${selected.length} tickers processed; ${failures} failures`);
  }
  const bytes=gzipSync(Buffer.from(lines.join('')),{level:6,mtime:0}),hash=createHash('sha256').update(bytes).digest('hex'),stem=`${mode}-p${shard}-${run}-b${offset/batchSize}-${hash.slice(0,12)}`;
