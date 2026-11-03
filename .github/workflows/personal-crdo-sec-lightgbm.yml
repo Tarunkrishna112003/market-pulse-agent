@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install bounded CPU dependencies
-        run: python -m pip install 'lightgbm==4.6.0' 'numpy==1.26.4' 'pandas==2.2.3' 'yfinance==0.2.66' 'beautifulsoup4==4.13.4'
+        run: python -m pip install 'lightgbm==4.6.0' 'scikit-learn==1.6.1' 'numpy==1.26.4' 'pandas==2.2.3' 'yfinance==0.2.66' 'beautifulsoup4==4.13.4'
       - name: Test dated financial and analyst joins
         run: python -m unittest discover -s scripts -p personal_crdo_sources_test.py
       - name: Train CRDO LightGBM and display source audit and last 30 session results
