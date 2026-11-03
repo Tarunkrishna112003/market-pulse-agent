@@ -1,4 +1,5 @@
 import {stockHistory} from './stock-history.mjs';
+import {tickerLabel} from './exchange.mjs';
 const $=id=>document.getElementById(id);
 const params=new URLSearchParams(location.search),symbol=params.get('symbol');
 const money=v=>Number.isFinite(v)?'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
@@ -8,7 +9,7 @@ try{
  const response=await fetch('data.json',{cache:'no-store'});if(!response.ok)throw Error('Stock history is temporarily unavailable.');
  const data=await response.json(),stock=data.stocks.find(s=>s.symbol===symbol);if(!stock)throw Error('This stock has no successful history in the latest scan.');
  const days=Number(params.get('days')||data.report.filters.lookbackDays),result=stockHistory(stock,data.report,days);
- document.title=stock.symbol+' · Daily price history';$('title').textContent=`${stock.name} (${stock.symbol})`;
+ document.title=tickerLabel(stock)+' · Daily price history';$('title').textContent=`${stock.name} (${tickerLabel(stock)})`;
  $('window').textContent=`${result.start} through ${result.end} · ${days} calendar days · ${result.days.length} trading sessions · USD`;
  for(const d of [...result.days].reverse()){const row=document.createElement('tr');[d.date,Number.isFinite(d.change)?`${d.change>=0?'+':''}${d.change.toFixed(2)}%`:'—',money(d.low),money(d.high),money(d.close)].forEach((value,i)=>{const cell=document.createElement('td');if(i===2&&d.low===result.minLow||i===3&&d.high===result.maxHigh){const strong=document.createElement('strong');strong.textContent=value;cell.append(strong)}else cell.textContent=value;if(i===1)cell.className=d.change>=0?'positive':'negative';row.append(cell)});$('historyRows').append(row)}
  $('empty').textContent=result.days.length?'':'No trading sessions are available within the selected window.';

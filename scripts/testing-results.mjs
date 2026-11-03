@@ -9,6 +9,8 @@ async function published(file,optional=false){const r=await fetch(base+file+'?te
 async function current(file){try{return JSON.parse(await readFile(site+'/'+file,'utf8'))}catch(error){if(error.code!=='ENOENT')throw error;return published(file)}}
 const previous=await published('testing-results.json',true);
 const state=extendTest(previous||createTest(await published('daily-report.json')));
+const scan=await current('data.json'),exchanges=new Map(scan.stocks.map(stock=>[stock.symbol,stock.exchange]));
+state.stocks=state.stocks.map(stock=>({...stock,exchange:exchanges.get(stock.symbol)||stock.exchange}));
 const [metadata,forecasts]=await Promise.all([current('predictions.json'),current('predictions/365.json')]);
 if(metadata.reportId!==forecasts.reportId)throw Error('Published forecast changed during download; preserving previous test');
 const now=new Date(),prices=[],errors=[];let index=0;

@@ -16,6 +16,12 @@ try{
  await wait("document.body.dataset.ready==='true'||document.body.dataset.error==='true'");assert.equal(await evaluate("document.body.dataset.error||''"),'');
  assert.equal(await evaluate("document.querySelectorAll('.main-nav a').length"),4);
  assert.ok(await evaluate("document.querySelectorAll('#volatilityRows .company-link').length>0"));await screenshot('volatility-desktop');
+ for(const section of ['volatility','predictions','explore','testing']){
+  await route(section);const rows=section==='volatility'?'volatilityRows':section==='predictions'?'predictionRows':section==='explore'?'exploreRows':'testRows';
+  assert.ok(await evaluate(`document.querySelectorAll('#${rows} .company-link').length>0`));
+  assert.equal(await evaluate(`document.querySelectorAll('#${rows} .company-link').length`),await evaluate(`document.querySelectorAll('#${rows} .exchange-badge').length`));
+  assert.ok(await evaluate(`Array.from(document.querySelectorAll('#${rows} .exchange-badge')).every(n=>['NASDAQ','NYSE','Exchange unavailable'].includes(n.textContent))`));
+ }
  for(const section of ['volatility','predictions']){
   await route(section);if(section==='predictions')await evaluate("document.getElementById('predictionFilters').elements.availableOnly.checked=false;document.getElementById('predictionFilters').requestSubmit()");await evaluate("document.querySelector('#"+(section==='predictions'?'prediction':section)+"Rows .company-link').click()");await wait("document.body.dataset.section==='explore'&&!document.getElementById('exploreDetail').hidden");
   assert.equal(await evaluate("document.querySelector('.detail-back').getAttribute('href')"),'#'+section);
@@ -25,8 +31,11 @@ try{
  await route('volatility');
  for(const [section,prefix] of [['volatility','volatility'],['predictions','prediction']]){
   await route(section);await evaluate("document.getElementById('"+prefix+"Search').value='Apple';document.getElementById('"+prefix+"Search').dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.getElementById('"+prefix+"SearchResults').textContent.includes('AAPL')");
+  assert.equal(await evaluate("document.querySelector('#"+prefix+"SearchResults .exchange-badge').textContent"),'NASDAQ');
   await evaluate("document.getElementById('"+prefix+"Search').value='CRDO';document.getElementById('"+prefix+"Search').dispatchEvent(new Event('input',{bubbles:true}))");await wait("document.querySelector('#"+prefix+"SearchResults a strong')?.textContent==='CRDO'");await screenshot(prefix+'-search-desktop');
   await evaluate("document.querySelector('#"+prefix+"SearchResults a').click()");await wait("document.getElementById('stockPredictionHistory')!==null");
+  assert.equal(await evaluate("document.querySelector('.detail-heading .exchange-badge').textContent"),'NASDAQ');
+  assert.equal(await evaluate("document.querySelector('.stock-forecast-section h2 .exchange-badge').textContent"),'NASDAQ');
   assert.ok(await evaluate("document.querySelector('.stock-forecast-section').textContent.includes('Next trading session')"));
   await evaluate("document.getElementById('stock-tab-predictions').click()");assert.equal(await evaluate("document.getElementById('stock-daily-price-panel').hidden"),true);
   await evaluate("document.getElementById('stock-tab-daily-price').click()");assert.equal(await evaluate("document.getElementById('stock-predictions-panel').hidden"),true);assert.equal(await evaluate("document.getElementById('stock-daily-price-panel').hidden"),false);

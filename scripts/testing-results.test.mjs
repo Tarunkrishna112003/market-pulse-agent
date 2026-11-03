@@ -37,13 +37,14 @@ test('testing page preserves saved numbers and dashboard navigation exposes its 
  const {mkdtemp,copyFile,readFile,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),{join}=await import('node:path'),{pathToFileURL}=await import('node:url');
  const dir=await mkdtemp(join(tmpdir(),'testing-page-'));const savedDocument=globalThis.document,savedFetch=globalThis.fetch;
  try{
-  await copyFile('github-pages/testing.js',join(dir,'testing.mjs'));
+  await copyFile('github-pages/exchange.mjs',join(dir,'exchange.mjs'));await copyFile('github-pages/testing.js',join(dir,'testing.mjs'));
   let state=updateTest(createTest(cohort),snapshot(),[],new Date('2026-10-19T12:05:00Z'));
   state=updateTest(state,snapshot(9),[{symbol:'S0',daily:[{date:'2026-10-19',open:200,close:206}]}],new Date('2026-10-19T21:55:00Z'));
+  state.stocks[0].exchange='NASDAQ';
   const nodes=new Map();for(const id of ['week','testDay','testStatus','testRows'])nodes.set(id,{value:'',children:[],append(...items){this.children.push(...items)},replaceChildren(){this.children=[]}});
   globalThis.document={getElementById:id=>nodes.get(id),createElement:()=>({children:[],append(...items){this.children.push(...items)}})};globalThis.fetch=async()=>({ok:true,json:async()=>state});
   await import(pathToFileURL(join(dir,'testing.mjs')).href);nodes.get('testDay').value='2026-10-19';nodes.get('testDay').onchange();
-  assert.equal(nodes.get('testRows').children.length,25);const row=nodes.get('testRows').children[0];assert.equal(row.children[1].textContent,'+2.00%');assert.equal(row.children[2].textContent,'+3.00%');assert.equal(row.children[3].textContent,'1.00');assert.equal(row.children[4].textContent,'Correct direction');
+  assert.equal(nodes.get('testRows').children.length,25);const row=nodes.get('testRows').children[0];assert.match(row.children[0].textContent,/S0 · NASDAQ/);assert.equal(row.children[1].textContent,'+2.00%');assert.equal(row.children[2].textContent,'+3.00%');assert.equal(row.children[3].textContent,'1.00');assert.equal(row.children[4].textContent,'Correct direction');
   const html=await readFile('github-pages/index.html','utf8');assert.match(html,/href="#testing"/);assert.match(html,/id="panel-testing"/);
  }finally{globalThis.document=savedDocument;globalThis.fetch=savedFetch;await rm(dir,{recursive:true,force:true})}
 });

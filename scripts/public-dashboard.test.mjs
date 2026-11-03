@@ -5,8 +5,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
-for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
-const {parseRanges,movementRows,predictionRows,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['github-pages/exchange.mjs','exchange.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
+const {parseRanges,movementRows,predictionRows,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
 after(()=>rm(dir,{recursive:true,force:true}));
 const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
 const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
@@ -104,4 +104,12 @@ test('stock details use saved history, separate late records, and require the ex
  assert.equal(stockPredictionView('UNKNOWN',new Map(),testing,ledger,now).records.length,0);
  const duringSession=stockPredictionView('APP',new Map([['APP',forecast]]),null,null,new Date('2026-11-02T17:00:00Z'));
  assert.equal(duringSession.targetDate,'2026-11-03');assert.equal(duringSession.next,null);assert.equal(duringSession.current,forecast);
+});
+
+test('exchange labels use recorded listing metadata and distinguish NASDAQ from NYSE',()=>{
+ for(const name of ['NASDAQ','NASDAQGS','NMS','NGM','NCM'])assert.equal(exchangeLabel({exchange:name}),'NASDAQ');
+ for(const name of ['NYSE','NYQ','New York Stock Exchange'])assert.equal(exchangeLabel({exchange:name}),'NYSE');
+ assert.equal(tickerLabel({symbol:'AAPL',exchange:'NMS'}),'AAPL · NASDAQ');
+ assert.equal(tickerLabel({symbol:'IBM',exchange:'NYSE'}),'IBM · NYSE');
+ assert.equal(exchangeLabel({symbol:'UNKNOWN'}),'Exchange unavailable');
 });
