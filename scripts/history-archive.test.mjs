@@ -16,7 +16,7 @@ test('stable shards cover every listing once and CSV quotes corporate actions',(
 });
 test('daily backfill begins before 1970 and intraday requests respect retention',()=>{
  assert.equal(archiveURL('BRK.B','1d',{now}).searchParams.get('period1'),'-2208988800');assert.ok(archiveURL('BRK.B','1d',{now}).pathname.endsWith('BRK-B'));
- assert.equal(Number(archiveURL('AAPL','5m',{now,since:0}).searchParams.get('period1')),now.getTime()/1000-58*86400);
+ assert.equal(Number(archiveURL('AAPL','30m',{now,since:0}).searchParams.get('period1')),now.getTime()/1000-58*86400);
  assert.throws(()=>archiveURL('AAPL','1m',{now}),/Unsupported/);
  assert.equal(archiveProviderSymbol('AKO/A'),'AKO-A');assert.equal(archiveProviderSymbol('ACP^A'),'ACP-PA');assert.equal(archiveProviderSymbol('^GSPC'),'^GSPC');
 });
@@ -26,21 +26,23 @@ test('archive preserves price, adjustment and action fields, and rejects malform
  assert.equal(parseArchiveChart('CRDO',chart({quote:{high:[99]}}),'1d',now).invalidRows,1);
  assert.throws(()=>parseArchiveChart('CRDO',{chart:{error:{description:'No data'}}},'1d',now),/No data/);
 });
-test('partial daily and 5-minute bars never become completed training labels',()=>{
+test('partial daily and 30-minute bars never become completed training labels',()=>{
  const daily=chart({timestamps:[epoch('2026-11-02T14:30:00Z')]});
  assert.equal(parseArchiveChart('CRDO',daily,'1d',new Date('2026-11-02T21:10:00Z')).bars.length,0);
  assert.equal(parseArchiveChart('CRDO',daily,'1d',new Date('2026-11-02T21:15:00Z')).bars.length,1);
- const intra=chart({timestamps:[epoch('2026-11-02T15:00:00Z')]});
- assert.equal(parseArchiveChart('CRDO',intra,'5m',new Date('2026-11-02T15:05:00Z')).bars.length,0);
- assert.equal(parseArchiveChart('CRDO',intra,'5m',new Date('2026-11-02T15:06:30Z')).bars.length,1);
+ const intra=chart({timestamps:[epoch('2026-11-02T15:00:00Z'),epoch('2026-11-02T15:15:00Z')],quote:{open:[100,103],high:[105,108],low:[98,102],close:[103,107],volume:[1000,2000]}});
+ assert.equal(parseArchiveChart('CRDO',intra,'30m',new Date('2026-11-02T15:30:00Z')).bars.length,0);
+ const saved=parseArchiveChart('CRDO',intra,'30m',new Date('2026-11-02T15:31:30Z')).bars[0];
+ assert.equal(saved.open,100);assert.equal(saved.close,107);assert.equal(saved.high,108);assert.equal(saved.low,98);assert.equal(saved.volume,3000);assert.equal(saved.interval,'30m');
+ assert.equal(parseArchiveChart('CRDO',chart(),'30m',now).bars.length,0);
 });
 test('overlap and checkpoints preserve old history, never advance on failed collection',()=>{
  const original={schemaVersion:1,symbols:{CRDO:{status:'backfilled','1d':{lastTimestamp:100,firstDate:'2020-01-01',lastDate:'2026-10-30'}}}};
  const failed=mergedCheckpoint(original,[{symbol:'CRDO',status:'error',error:'HTTP 429'}],now.toISOString());assert.equal(failed.symbols.CRDO['1d'].lastTimestamp,100);assert.equal(original.symbols.CRDO.lastError,undefined);
  const success=mergedCheckpoint(failed,[{symbol:'CRDO',status:'saved',intervals:[{interval:'1d',status:'saved',firstDate:'2026-10-20',lastDate:'2026-11-02',lastTimestamp:200}]}],now.toISOString());
  assert.equal(success.symbols.CRDO['1d'].firstDate,'2020-01-01');assert.equal(success.symbols.CRDO['1d'].lastTimestamp,200);assert.equal(success.symbols.CRDO.lastError,null);
- const window=updateWindow({ '5m':{lastTimestamp:now.getTime()/1000-1000}},'5m',now);assert.equal(window.since,now.getTime()/1000-2800);
- assert.ok(updateWindow({'5m':{lastTimestamp:0}},'5m',now).gap);
+ const window=updateWindow({ '30m':{lastTimestamp:now.getTime()/1000-1000}},'30m',now);assert.equal(window.since,now.getTime()/1000-2800);
+ assert.ok(updateWindow({'30m':{lastTimestamp:0}},'30m',now).gap);
 });
 test('regular-session collector handles weekends and DST using Eastern time',()=>{
  assert.equal(shouldCollect(new Date('2026-11-01T17:00:00Z')),false);assert.equal(shouldCollect(new Date('2026-11-02T14:30:00Z')),true);assert.equal(shouldCollect(new Date('2026-11-02T14:00:00Z')),false);assert.equal(shouldCollect(new Date('2026-11-02T22:00:00Z')),false);
@@ -60,4 +62,11 @@ test('unavailable histories are explicit and never erase a prior successful curs
  const old={schemaVersion:1,symbols:{A:{status:'backfilled','1d':{lastTimestamp:10,lastDate:'2026-10-30'}}}};
  const next=mergedCheckpoint(old,[{symbol:'A',status:'unavailable',error:'Chart HTTP 404'},{symbol:'NEW',status:'unavailable',error:'No history'}],now.toISOString());
  assert.equal(next.symbols.A.status,'backfilled');assert.equal(next.symbols.A['1d'].lastTimestamp,10);assert.equal(next.symbols.NEW.status,'unavailable');assert.equal(next.symbols.NEW.lastError,'No history');
+});
+
+test('GitHub service failures are retried, while permanent errors are reported',async()=>{
+ const {withArchiveRetry}=await import('../lib/archive-retry.mjs');let calls=0,delays=[];
+ const value=await withArchiveRetry(async()=>{if(++calls<3)throw Error('HTTP 500');return 'saved'},{sleep:async n=>delays.push(n)});
+ assert.equal(value,'saved');assert.equal(calls,3);assert.deepEqual(delays,[2000,4000]);
+ await assert.rejects(()=>withArchiveRetry(async()=>{throw Error('HTTP 404')},{sleep:async()=>assert.fail('Permanent errors must not be retried')}),/404/);
 });

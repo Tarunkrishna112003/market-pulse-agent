@@ -10,7 +10,7 @@ The initial job runs on GitHub-hosted Ubuntu runners. Full history collection is
 - Discovery reads the complete NASDAQ and NYSE listings, without market-cap, volatility, or top-25 restrictions. Provider metadata classifies supported exchange equities; excluded/non-equity instruments and failed symbols remain visible in coverage metadata.
 - The daily request starts at 1900-01-01, allowing pre-1970 records. This means **all history available from the provider**, not guaranteed IPO-to-present completeness. The initial universe contains current listings and does not reconstruct delisted companies or historical index membership.
 - CSV columns: `symbol,interval,timestamp,session_date,open,high,low,close,volume,adjusted_close,corporate_actions,observed_at,source`.
-- `interval=1d` denotes daily OHLCV. Timestamps are Unix seconds; session dates use New York time. OHLCV is provider-reported, and adjusted close and corporate actions are preserved separately. Future provider adjustments may revise historic prices.
+- `interval=1d` denotes daily OHLCV; `interval=30m` denotes completed regular-session half-hour OHLCV. Timestamps are Unix seconds; session dates use New York time. OHLCV is provider-reported, and adjusted close and corporate actions are preserved separately. Future provider adjustments may revise historic prices.
 - A manifest records SHA-256, schema, exact row count, columns, commit, coverage dates, provider first-trade timestamp, rejected rows, warnings, and each ticker's outcome. A successful request is not a guarantee of complete market history.
 - The CSV is gzip-compressed, not committed into Git history. A chunk is kept below 500 MiB; normal chunks contain at most 50 tickers.
 
@@ -27,11 +27,11 @@ Every append carries its observation time. Consumers merge by `(symbol, interval
 Pushing archive code to `testing-server` triggers the initial backfill. In Actions, **Testing server stock history archive** can also be run manually against `testing-server`:
 
 - `mode=backfill`: complete or resume initial daily histories.
-- `mode=update`: append recent completed five-minute bars, plus completed daily bars after the scheduled close and a 15-minute delay. Updated CSVs/manifests are stored in `testing-stock-updates-YYYY-MM-DD` releases.
+- `mode=update`: append recent completed 30-minute bars, plus completed daily bars after the scheduled close and a 15-minute delay. Updated CSVs/manifests are stored in `testing-stock-updates-YYYY-MM-DD` releases.
 
-Updates request an overlap around the last saved bar, so a delayed run catches up rather than discarding everything older than its most recent 30 minutes. Initial intraday collection requests seven days. The provider has limited intraday retention; gaps older than the configured 58-day safe window are explicitly reported. Failed requests never advance a ticker's data watermark.
+Updates request an overlap around the last saved bar, so a delayed run catches up rather than discarding everything older than its most recent 30 minutes. Initial intraday collection starts at the most recent completed half-hour; later runs catch up from the saved half-hour cursor. The provider has limited intraday retention; gaps older than the configured 58-day safe window are explicitly reported. Failed requests never advance a ticker's data watermark.
 
-Update jobs skip weekends and times outside 09:30–16:45 Eastern. No premarket/after-hours feature training is enabled. Daily bars and the final five-minute bar remain excluded until complete. After early closes, the same close-time checks govern completed daily labels.
+Update jobs skip weekends and times outside 09:30–16:45 Eastern. No premarket/after-hours feature training is enabled. Daily bars and the final 30-minute bar remain excluded until complete. After early closes, the same close-time checks govern completed daily labels.
 
 ## Scheduling and training status
 
@@ -45,7 +45,7 @@ The workflow also archives market/sector context (`^GSPC`, `^VIX`, and sector ET
 
 The first fit initializes a separate experimental LightGBM model. Later fits load that model's native weights with `init_model` and append boosting rounds. Symbol/sector IDs and feature order are persisted; incompatible code/checkpoints stop with an error rather than resetting. The features and directional objective come from the existing stock-specific model code. No calibration or historical-median model is introduced.
 
-All archived years are available. Each fit uses up to 128 replay examples per stock, spread across the available years and including 32 recent observations, to stay inside standard runner memory. This is a representative replay sample, **not every stored bar in every fitting pass**. New outcomes supply supervised labels only after the session is complete. Collected five-minute bars are retained for future intraday experiments; they are not relabeled as completed daily outcomes.
+All archived years are available. Each fit uses up to 128 replay examples per stock, spread across the available years and including 32 recent observations, to stay inside standard runner memory. This is a representative replay sample, **not every stored bar in every fitting pass**. New outcomes supply supervised labels only after the session is complete. Collected 30-minute bars are retained for future intraday experiments; they are not relabeled as completed daily outcomes.
 
 The first fit uses the latest 20 completed market dates for temporal validation. Subsequent candidates are evaluated on dates later than the previous evaluation watermark; those outcomes are excluded from fitting that candidate. A continued candidate advances the testing checkpoint only if its MAE improves and direction accuracy does not worsen against its parent on those same fresh dates. Rejected candidates are retained and the old checkpoint stays active. The first checkpoint is experimental, not proof that the model beats a trading baseline. No testing checkpoint is automatically deployed to the live website.
 
@@ -61,3 +61,9 @@ References:
 - https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases
 - https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule
 - https://ranaroussi.github.io/yfinance/reference/yfinance.functions.html
+
+## Archive resilience
+
+Transient GitHub service/network errors are retried with backoff. Raw CSVs, immutable evaluation manifests, and model files are never clobbered. If the small model pointer is lost during a GitHub outage, the trainer recovers the latest accepted model from its immutable evaluation manifest and verifies its checksum; it does not silently initialize a fresh model.
+
+The 30-minute collector combines two completed provider 15-minute bars to avoid the feed's documented 30-minute interval issue. Only the resulting 30-minute row is saved. Missing sub-bars or incomplete half-hours are not filled in. Earlier archived intervals are retained but no new five-minute collection is enabled.

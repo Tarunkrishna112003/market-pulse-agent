@@ -15,6 +15,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from collections import Counter
 
@@ -169,6 +170,34 @@ def train_candidate(train, validation, names, parent_path=None, rounds=None):
                    'parentTrees':parent.num_trees() if parent else 0,'candidateTrees':model.num_trees()}
 
 
+def github_command(args, attempts=4):
+    for attempt in range(attempts):
+        result = subprocess.run(['gh', *args],capture_output=True,text=True)
+        if result.returncode == 0:
+            return result.stdout
+        error = subprocess.CalledProcessError(result.returncode,['gh', *args],result.stdout,result.stderr)
+        transient = re.search(r'HTTP 5\d\d|HTTP 429|timed? ?out|connection reset|unexpected EOF|TLS handshake',result.stderr,re.I)
+        if not transient or attempt == attempts-1:
+            raise error
+        time.sleep(2*2**attempt)
+
+
+def recover_model_pointer(archive):
+    """Recover a lost mutable pointer from immutable accepted evaluation manifests."""
+    for tag in sorted((t for t in archive.release_tags() if re.fullmatch(r'testing-stock-models-\d{6}',t)),reverse=True):
+        evaluations=sorted((a['name'] for a in archive.assets(tag) if a['name'].startswith('evaluation-') and a['name'].endswith('.json')),reverse=True)
+        for name in evaluations:
+            metadata=archive.json(tag,name)
+            if metadata.get('metrics',{}).get('accept'):
+                path=archive.download(metadata['release'],metadata['modelAsset'])
+                if hashlib.sha256(path.read_bytes()).hexdigest()!=metadata['modelSha256']:
+                    raise RuntimeError('Recovery model checksum mismatch; refusing a reset')
+                archive.upload(INDEX_TAG,'checkpoint.json',json.dumps(metadata).encode(),mutable=True)
+                print('Recovered the existing model pointer from its immutable accepted version.',flush=True)
+                return metadata
+    return {}
+
+
 class GitHubArchive:
     def __init__(self, root):
         require_runner()
@@ -178,7 +207,7 @@ class GitHubArchive:
         self.cached_assets = {}
 
     def gh(self, *args):
-        return subprocess.check_output(['gh', *args, '--repo', self.repo], text=True)
+        return github_command([*args,'--repo',self.repo])
 
     def assets(self, tag, refresh=False):
         if tag not in self.cached_assets or refresh:
@@ -186,10 +215,12 @@ class GitHubArchive:
         return self.cached_assets[tag]
 
     def has_release(self, tag):
-        result = subprocess.run(['gh','release','view',tag,'--repo',self.repo], capture_output=True, text=True)
-        if result.returncode and not re.search(r'not found|404', result.stderr, re.I):
-            raise RuntimeError(result.stderr)
-        return result.returncode == 0
+        try:
+            self.gh('release','view',tag)
+            return True
+        except subprocess.CalledProcessError as error:
+            if re.search(r'not found|404',error.stderr,re.I):return False
+            raise
 
     def ensure_release(self, tag):
         if not self.has_release(tag):
@@ -211,15 +242,22 @@ class GitHubArchive:
 
     def upload(self, tag, name, content, mutable=False):
         if not mutable and any(a['name'] == name for a in self.assets(tag, refresh=True)):
+            if self.download(tag,name).read_bytes()==content:return
             raise RuntimeError('Refusing to overwrite an immutable archive/model asset')
         path = self.root / name
         path.write_bytes(content)
-        self.gh('release','upload',tag,str(path),*(['--clobber'] if mutable else []))
+        try:
+            self.gh('release','upload',tag,str(path),*(['--clobber'] if mutable else []))
+        except subprocess.CalledProcessError:
+            if not mutable and any(a['name']==name for a in self.assets(tag,refresh=True)) and self.download(tag,name).read_bytes()==content:return
+            raise
         self.cached_assets.pop(tag, None)
 
+    def release_tags(self):
+        return github_command(['api','--paginate',f'repos/{self.repo}/releases','--jq','.[].tag_name']).splitlines()
+
     def update_tags(self):
-        out = subprocess.check_output(['gh','api','--paginate',f'repos/{self.repo}/releases','--jq','.[].tag_name'], text=True)
-        return sorted(t for t in out.splitlines() if re.fullmatch(r'testing-stock-updates-\d{4}-\d{2}-\d{2}', t))
+        return sorted(t for t in self.release_tags() if re.fullmatch(r'testing-stock-updates-\d{4}-\d{2}-\d{2}', t))
 
     def stage(self, connection):
         manifests = 0
@@ -333,7 +371,7 @@ def main():
         raise RuntimeError('Less than 90% of archived equities have the latest completed daily label; waiting for data')
     archive.ensure_release(INDEX_TAG)
     index_names = {a['name'] for a in archive.assets(INDEX_TAG)}
-    parent_meta = archive.json(INDEX_TAG,'checkpoint.json') if 'checkpoint.json' in index_names else {}
+    parent_meta = archive.json(INDEX_TAG,'checkpoint.json') if 'checkpoint.json' in index_names else recover_model_pointer(archive)
     last_attempt = archive.json(INDEX_TAG,'last-evaluation.json') if 'last-evaluation.json' in index_names else {}
     last = max(parent_meta.get('lastEvaluatedDate',''),last_attempt.get('lastEvaluatedDate','')) or None
     if last and latest <= last:

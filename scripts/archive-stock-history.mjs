@@ -5,6 +5,7 @@ import {gzipSync,gunzipSync} from 'node:zlib';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {resolve} from 'node:path';
+import {withArchiveRetry} from '../lib/archive-retry.mjs';
 import {BASE_TAG,ARCHIVE_CONTEXT,ARCHIVE_SCHEMA,CSV_COLUMNS,csvLine,barCSV,shardFor,archiveURL,discoverArchiveUniverse,parseArchiveChart,updateWindow,mergedCheckpoint,shouldCollect} from '../lib/history-archive.mjs';
 import {easternSessionClock,scheduledCloseMinute,previousTradingDay} from '../lib/trading-calendar.mjs';
 const exec=promisify(execFile),args=new Map();for(let i=2;i<process.argv.length;i+=2)args.set(process.argv[i],process.argv[i+1]);
@@ -14,7 +15,7 @@ if(process.env.GITHUB_REF_NAME!=='testing-server')throw Error('Archive jobs run 
 const mode=args.get('--mode')||'backfill',shard=Number(args.get('--shard')||0),shards=8;
 if(!['prepare','backfill','update','summary'].includes(mode)||!Number.isInteger(shard)||shard<0||shard>=shards)throw Error('Invalid archive mode/shard');
 const now=new Date(),repo=process.env.GITHUB_REPOSITORY,run=process.env.GITHUB_RUN_ID+'-'+process.env.GITHUB_RUN_ATTEMPT,root=resolve('work/github-history');await mkdir(root,{recursive:true});
-async function gh(...a){return (await exec('gh',[...a,'--repo',repo],{maxBuffer:16*1024*1024})).stdout;}
+async function gh(...a){return withArchiveRetry(async()=>(await exec('gh',[...a,'--repo',repo],{maxBuffer:16*1024*1024})).stdout);}
 async function releaseExists(tag){try{return JSON.parse(await gh('release','view',tag,'--json','tagName')).tagName===tag}catch(e){if(/release not found|404|Not Found/i.test(e.stderr||''))return false;throw e}}
 async function ensureRelease(tag,notes){if(!await releaseExists(tag)){try{await gh('release','create',tag,'--target','testing-server','--prerelease','--title',tag,'--notes',notes)}catch(error){if(!await releaseExists(tag))throw error}}}
 async function assetNames(tag){return new Set(JSON.parse(await gh('release','view',tag,'--json','assets')).assets.map(a=>a.name));}
@@ -23,7 +24,7 @@ async function upload(tag,name,bytes,{mutable=false}={}){
  if(bytes.length>=500*1024*1024)throw Error('Archive chunk exceeds 500 MiB safety limit');
  const path=resolve(root,name);await writeFile(path,bytes);
  if(!mutable&&(await assetNames(tag)).has(name)){const remote=await download(tag,name);if(!remote.equals(bytes))throw Error('Immutable asset conflict: '+name);return;}
- await gh('release','upload',tag,path,...(mutable?['--clobber']:[]));
+ try{await gh('release','upload',tag,path,...(mutable?['--clobber']:[]))}catch(error){if(!mutable&&(await assetNames(tag)).has(name)&&(await download(tag,name)).equals(bytes))return;throw error}
 }
 const archiveNotes='Testing-server historical stock dataset, schema v1. Immutable gzip CSV history and manifests; checkpoint assets are rebuildable metadata. Current listings, provider-available daily history; not a survivorship-free database. No live-site deployment.';
 if(mode==='prepare'){
@@ -69,7 +70,7 @@ for(let offset=0;offset<selected.length;offset+=batchSize){
  for(const stock of stocks){
   try{
    const intervals=[],needsBackfill=mode==='backfill'||checkpoint.symbols[stock.symbol]?.status!=='backfilled',clock=easternSessionClock(now),daily=needsBackfill||clock.minute>=scheduledCloseMinute(clock.date)+15||(checkpoint.symbols[stock.symbol]?.['1d']?.lastDate||'')<previousTradingDay(clock.date);
-   for(const interval of needsBackfill?['1d']:(daily?['5m','1d']:['5m'])){
+   for(const interval of needsBackfill?['1d']:(daily?['30m','1d']:['30m'])){
     const window=needsBackfill?{since:null,gap:null}:updateWindow(checkpoint.symbols[stock.symbol],interval,now);
     let record=await fetchChart(stock.symbol,interval,window.since);
     if(mode==='update'&&interval==='1d'&&(record.lastSplitTimestamp||0)>(checkpoint.symbols[stock.symbol]?.['1d']?.lastSplitTimestamp||0)){record=await fetchChart(stock.symbol,'1d',null);record.warnings.push('Full-history revision appended following a newly reported stock split');}

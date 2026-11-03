@@ -4,12 +4,14 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+import hashlib
+from types import SimpleNamespace
 import unittest
 from datetime import date,timedelta
 from unittest.mock import patch
 import numpy as np
 from testing_server_training import (require_runner, merge_registry, init_stage, ingest_csv, read_bars,
-    choose_training_indices, validation_dates, promotion_allowed, train_candidate, build_examples)
+    choose_training_indices, validation_dates, promotion_allowed, train_candidate, build_examples, recover_model_pointer, github_command)
 
 
 class ContinualTrainingTests(unittest.TestCase):
@@ -66,6 +68,19 @@ class ContinualTrainingTests(unittest.TestCase):
         self.assertEqual(metadata['symbolIds'],{'B':0,'A':1})
         self.assertLess(max(r['targetDate'] for r in train),min(r['targetDate'] for r in validation))
         self.assertTrue(all(r['lastInputDate']<r['targetDate'] for r in train+validation+inference))
+
+    def test_missing_pointer_recovers_accepted_immutable_model_without_reset(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'saved.txt';path.write_bytes(b'unchanged model weights')
+            metadata={'release':'testing-stock-models-202611','modelAsset':'saved.txt','modelSha256':hashlib.sha256(path.read_bytes()).hexdigest(),'metrics':{'accept':True}}
+            uploads=[]
+            archive=SimpleNamespace(release_tags=lambda:['testing-stock-models-202611'],assets=lambda tag:[{'name':'evaluation-saved.json'}],json=lambda tag,name:metadata,download=lambda tag,name:path,upload=lambda *a,**k:uploads.append((a,k)))
+            self.assertEqual(recover_model_pointer(archive),metadata);self.assertEqual(len(uploads),1);self.assertTrue(uploads[0][1]['mutable'])
+
+    def test_service_failure_retries_but_a_missing_asset_is_not_hidden(self):
+        responses=[SimpleNamespace(returncode=1,stdout='',stderr='HTTP 500'),SimpleNamespace(returncode=0,stdout='saved',stderr='')]
+        with patch('testing_server_training.subprocess.run',side_effect=responses),patch('testing_server_training.time.sleep') as sleep:
+            self.assertEqual(github_command(['release','view','fixture']),'saved');sleep.assert_called_once_with(2)
 
     def test_checkpoint_continuation_adds_trees_preserves_parent_and_excludes_validation(self):
         rng=np.random.default_rng(45);rows=[]

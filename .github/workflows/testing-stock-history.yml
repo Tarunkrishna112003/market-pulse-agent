@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/testing-stock-history.yml'
       - 'lib/history-archive.mjs'
+      - 'lib/archive-retry.mjs'
       - 'scripts/archive-stock-history.mjs'
       - 'scripts/history-archive.test.mjs'
       - 'scripts/testing_server_training.py'
@@ -12,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Backfill all available daily history, or append new 5-minute/completed daily bars
+        description: Backfill all available daily history, or append new 30-minute/completed daily bars
         type: choice
         options: [backfill, update]
         default: backfill
