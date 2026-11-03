@@ -68,10 +68,10 @@ test('October 20 switch uses exact frozen candidate values, preserves October 19
 
 test('second week preserves all prior entries and extension is idempotent',()=>{
  const prior=createTest(cohort);prior.entries[0].prediction={percent:3};prior.entries[0].actual={percent:2};
- const extended=extendTest(prior);
+ const extended=extendTest(prior,new Date('2026-10-30T22:00:00Z'));
  assert.deepEqual(extended.entries.slice(0,125),prior.entries);assert.equal(extended.entries.length,250);
  assert.deepEqual(extended.dates.slice(5),['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30']);
- assert.deepEqual(extendTest(extended),extended);assert.equal(prior.entries.length,125);
+ assert.deepEqual(extendTest(extended,new Date('2026-10-30T22:00:00Z')),extended);assert.equal(prior.entries.length,125);
 });
 test('history recovery uses saved pre-cutoff forecasts and preserves frozen values',()=>{
  const state=extendTest(createTest(cohort));const row={id:'saved',symbol:'S0',targetDate:'2026-10-26',lookback:365,returnBasis:'open-to-close',generatedAt:'2026-10-23T15:00:00Z',estimatedPercent:2,modelVersion:'existing'};
@@ -105,4 +105,32 @@ test('after-open model forecast is separate from the frozen morning test',()=>{
  assert.deepEqual(row.prediction,entry.prediction);assert.equal(row.lateForecasts[0].percent,-1);assert.equal(row.status,'awaiting-close');
  const second=updateTest(first,{...source,rows:[{...source.rows[0],estimatedPercent:9}]},[{symbol:'S0',daily:[{date:'2026-10-29',open:100,close:99}]}],new Date('2026-10-29T22:00:00Z'));
  const scored=second.entries.find(e=>e.date==='2026-10-29'&&e.symbol==='S0');assert.equal(scored.prediction.percent,2);assert.ok(Math.abs(scored.errorPoints-3)<1e-8);assert.ok(scored.lateForecasts[0].errorPoints<1e-8);
+});
+
+test('daily calendar crosses into November, excludes weekends and holidays, and preserves saved results',()=>{
+ const initial=extendTest(createTest(cohort),new Date('2026-10-30T22:00:00Z'));
+ initial.entries[0].prediction={percent:1.25,generatedAt:'2026-10-19T11:00:00Z'};
+ const november=extendTest(initial,new Date('2026-11-03T22:00:00Z'));
+ assert.deepEqual(november.dates.slice(-2),['2026-11-02','2026-11-03']);
+ assert.equal(november.entries.length,300);assert.deepEqual(november.entries.slice(0,250),initial.entries);
+ assert.ok(!november.dates.includes('2026-11-01'));assert.ok(!november.dates.includes('2026-11-04'));
+ assert.deepEqual(extendTest(november,new Date('2026-11-03T22:00:00Z')),november);
+ const holiday=extendTest(november,new Date('2026-11-27T22:00:00Z'));
+ assert.ok(!holiday.dates.includes('2026-11-26'));assert.ok(holiday.dates.includes('2026-11-27'));
+});
+
+test('November tests recover original morning and after-open records without inventing missing forecasts',()=>{
+ const now=new Date('2026-11-03T22:00:00Z'),state=extendTest(createTest(cohort),now);
+ const base={symbol:'S0',targetDate:'2026-11-03',lookback:365,returnBasis:'open-to-close',modelVersion:'v10'};
+ const history={records:[{...base,id:'morning',generatedAt:'2026-11-03T13:00:00Z',estimatedPercent:1},
+  {...base,id:'late',generatedAt:'2026-11-03T18:00:00Z',estimatedPercent:-1,generatedAfterOpen:true}]};
+ const recovered=restoreSavedPredictions(state,history,now);
+ const row=recovered.entries.find(e=>e.date==='2026-11-03'&&e.symbol==='S0');
+ assert.equal(row.prediction.percent,1);assert.equal(row.prediction.generatedAt,'2026-11-03T13:00:00Z');
+ assert.equal(row.lateForecasts.length,1);assert.equal(row.lateForecasts[0].percent,-1);
+ assert.equal(recovered.entries.find(e=>e.date==='2026-11-03'&&e.symbol==='S1').prediction,null);
+ const scored=updateTest(recovered,{rows:[]},[{symbol:'S0',daily:[{date:'2026-11-03',open:100,close:99}]}],now);
+ const scoredRow=scored.entries.find(e=>e.date==='2026-11-03'&&e.symbol==='S0');
+ assert.equal(scoredRow.directionCorrect,false);assert.equal(scoredRow.lateForecasts[0].directionCorrect,true);
+ assert.deepEqual(restoreSavedPredictions(scored,history,now),scored);
 });
