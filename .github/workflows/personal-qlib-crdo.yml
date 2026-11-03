@@ -27,6 +27,8 @@ jobs:
           python-version: '3.11'
       - name: Install Qlib and CRDO data dependencies
         run: python -m pip install 'pyqlib==0.9.7' 'lightgbm==4.6.0' 'numpy==1.26.4' 'pandas==2.2.3' 'yfinance==0.2.66'
+      - name: Install CPU backpropagation dependency
+        run: python -m pip install 'torch==2.8.0' --index-url https://download.pytorch.org/whl/cpu
       - name: Check feature timing and held-out splits
         run: python -m unittest discover -s scripts -p personal_qlib_crdo_test.py
       - name: Train Qlib and display 30-session CRDO results

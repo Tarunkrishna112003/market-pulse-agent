@@ -1,10 +1,31 @@
 import unittest
 import numpy as np
 import pandas as pd
-from personal_qlib_crdo import make_samples, split_samples
+from personal_qlib_crdo import make_samples, split_samples, train_neural_blocks
 
 
 class TimingTests(unittest.TestCase):
+    def test_backprop_preserves_optimizer_and_visits_all_rows(self):
+        import torch
+        torch.manual_seed(42)
+        network = torch.nn.Linear(2,1)
+        optimizer = torch.optim.Adam(network.parameters(),lr=.01)
+        x = torch.randn(129,2)
+        y = 2*x[:,0] - x[:,1]
+        visits = []
+        hook = network.register_forward_pre_hook(
+            lambda model, args: visits.append(len(args[0])) if model.training else None)
+        initial = network.weight.detach().clone()
+        selected, result = train_neural_blocks(network,optimizer,x,y,x[:30],y[:30])
+        hook.remove()
+        self.assertEqual(len(result['runs']),10)
+        self.assertEqual(result['runs'][-1]['cumulativeEpochs'],50)
+        self.assertEqual(sum(visits),50*len(x))
+        self.assertEqual(int(optimizer.state[network.weight]['step']),100)
+        self.assertFalse(torch.equal(initial,network.weight))
+        self.assertLess(result['runs'][-1]['trainMSE'],result['initialTrainMSE'])
+        self.assertIsNot(selected,network)
+
     def test_target_day_prices_cannot_change_target_day_features(self):
         dates = pd.bdate_range('2020-01-01', periods=500)
         close = 100 + np.arange(500) * .1 + np.sin(np.arange(500))

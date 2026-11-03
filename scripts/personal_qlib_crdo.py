@@ -40,6 +40,86 @@ def metrics(actual, predicted):
                 directionAccuracy=float(np.mean(np.sign(actual)==np.sign(predicted))))
 
 
+def train_neural_blocks(network, optimizer, train_x, train_y, valid_x, valid_y,
+                        runs=10, epochs_per_run=5):
+    """Keep network AND Adam state across blocks; each epoch visits every train row."""
+    import copy
+    import torch
+    if len(train_x) < 2:
+        raise ValueError('At least two training rows are required for batch normalization')
+    records, best_state, best_epoch = [], None, None
+    best_loss = float('inf')
+    with torch.no_grad():
+        network.eval()
+        initial_loss = float(torch.mean((network(train_x).reshape(-1)-train_y)**2))
+    for run in range(1, runs+1):
+        for inner_epoch in range(1, epochs_per_run+1):
+            network.train()
+            order = torch.randperm(len(train_x))
+            # Balanced batches prevent BatchNorm's single-row final batch error.
+            for indices in torch.tensor_split(order, max(1, len(order)//64)):
+                optimizer.zero_grad(set_to_none=True)
+                predicted = network(train_x[indices]).reshape(-1)
+                loss = torch.mean((predicted-train_y[indices])**2)
+                if not torch.isfinite(loss):
+                    raise ValueError('Nonfinite neural training loss')
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(network.parameters(), 5.)
+                optimizer.step()
+            network.eval()
+            with torch.no_grad():
+                train_loss = float(torch.mean((network(train_x).reshape(-1)-train_y)**2))
+                valid_loss = float(torch.mean((network(valid_x).reshape(-1)-valid_y)**2))
+            epoch = (run-1)*epochs_per_run+inner_epoch
+            if valid_loss < best_loss:
+                best_loss, best_epoch = valid_loss, epoch
+                best_state = copy.deepcopy(network.state_dict())
+        record = dict(run=run, cumulativeEpochs=epoch, trainMSE=train_loss,
+                      validationMSE=valid_loss)
+        records.append(record)
+        print('CRDO_BACKPROP_RUN=' + json.dumps(record), flush=True)
+    # Final weights remain intact; select a separate validation-best copy for inference.
+    selected = copy.deepcopy(network)
+    selected.load_state_dict(best_state)
+    selected.eval()
+    return selected, dict(initialTrainMSE=initial_loss, runs=records,
+                         bestEpoch=best_epoch, bestValidationMSE=best_loss)
+
+
+def neural_experiment(train, valid, test):
+    import numpy as np
+    import torch
+    from qlib.contrib.model.pytorch_nn import Net
+    torch.set_num_threads(2)
+    torch.manual_seed(42)
+    np.random.seed(42)
+    torch.use_deterministic_algorithms(True)
+    # Fit scaling on train only, never on validation or test prices.
+    mean = train['feature'].mean()
+    std = train['feature'].std().clip(lower=1e-8)
+    def tensor(part):
+        return torch.tensor(((part['feature']-mean)/std).to_numpy(), dtype=torch.float32)
+    tx, vx = tensor(train), tensor(valid)
+    ty = torch.tensor(train['label']['return_points'].to_numpy(), dtype=torch.float32)
+    vy = torch.tensor(valid['label']['return_points'].to_numpy(), dtype=torch.float32)
+    network = Net(input_dim=tx.shape[1], layers=(32,16))
+    optimizer = torch.optim.Adam(network.parameters(), lr=.001, weight_decay=.01)
+    selected, history = train_neural_blocks(network, optimizer, tx, ty, vx, vy)
+    # Test outcomes enter only reporting, after all 50 epochs and checkpoint selection.
+    with torch.no_grad():
+        selected_pred = selected(tensor(test)).reshape(-1).numpy()
+        final_pred = network(tensor(test)).reshape(-1).numpy()
+    actual = test['label']['return_points'].to_numpy()
+    print('CRDO_BACKPROP_RESULT=' + json.dumps(dict(
+        model='Qlib Net MLP (32,16), Adam backpropagation', totalEpochs=50,
+        trainingHistory=history, selectedMetrics=metrics(actual,selected_pred),
+        epoch50Metrics=metrics(actual,final_pred),
+        testStart=str(test.index[0][0].date()), testEnd=str(test.index[-1][0].date()),
+        note='Previously examined historical holdout; validation-only checkpoint selection, not a new prospective test.'
+    )), flush=True)
+    return selected_pred
+
+
 def main():
     if (os.environ.get('GITHUB_ACTIONS') != 'true' or
         os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or
@@ -88,6 +168,7 @@ def main():
     with R.start(experiment_name='CRDO-only-heldout'):
         model.fit(dataset, verbose_eval=0)
         predicted = model.predict(dataset).to_numpy()
+    neural_predictions = neural_experiment(train, valid, test)
     actual = test['label']['return_points'].to_numpy()
     train_y = train['label']['return_points']
     majority_sign = 1 if (train_y > 0).mean() >= .5 else -1
@@ -106,6 +187,9 @@ def main():
     print('date,predicted_open_to_close_percent,actual_open_to_close_percent,error_points,direction_correct')
     for index, pred, real in zip(test.index,predicted,actual):
         print(f'{index[0].date()},{pred:.4f},{real:.4f},{pred-real:.4f},{np.sign(pred)==np.sign(real)}')
+    print('NEURAL_date,predicted_open_to_close_percent,actual_open_to_close_percent,error_points,direction_correct')
+    for index, pred, real in zip(test.index,neural_predictions,actual):
+        print(f'NEURAL_{index[0].date()},{pred:.4f},{real:.4f},{pred-real:.4f},{np.sign(pred)==np.sign(real)}')
     # User requested display only: no extra result report/model artifact is uploaded.
 
 
