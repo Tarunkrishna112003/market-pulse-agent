@@ -2,7 +2,7 @@ name: Testing server 30-minute dispatcher
 on:
   schedule:
     # Both US Eastern offsets; the branch calendar gates actual exchange sessions.
-    - cron: '7,37 13-22 * * 1-5'
+    - cron: '7,37 13-23 * * 1-5'
   workflow_dispatch:
     inputs:
       force:
@@ -34,8 +34,11 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import {shouldCollect} from './lib/history-archive.mjs';
+          import {easternSessionClock,tradingDay,scheduledCloseMinute} from './lib/trading-calendar.mjs';
           import {execFileSync} from 'node:child_process';
-          if(process.env.FORCE==='true'||shouldCollect()){
+          const clock=easternSessionClock(),close=scheduledCloseMinute(clock.date);
+          const closingRetry=tradingDay(clock.date)&&clock.minute>=close+15&&clock.minute<=close+120;
+          if(process.env.FORCE==='true'||shouldCollect()||closingRetry){
             execFileSync('gh',['workflow','run','testing-stock-history.yml','--ref','testing-server','--repo',process.env.REPO,'-f','mode=update','-f','train=true'],{stdio:'inherit'});
             console.log('Dispatched append-only collection and checkpoint-based training on testing-server.');
           }else console.log('Outside the regular-session collection window; no testing run needed.');
