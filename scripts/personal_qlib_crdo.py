@@ -41,7 +41,7 @@ def metrics(actual, predicted):
 
 
 def train_neural_blocks(network, optimizer, train_x, train_y, valid_x, valid_y,
-                        runs=10, epochs_per_run=5):
+                        runs=10, epochs_per_run=5, start_epoch=0, previous_best=None):
     """Keep network AND Adam state across blocks; each epoch visits every train row."""
     import copy
     import torch
@@ -49,6 +49,10 @@ def train_neural_blocks(network, optimizer, train_x, train_y, valid_x, valid_y,
         raise ValueError('At least two training rows are required for batch normalization')
     records, best_state, best_epoch = [], None, None
     best_loss = float('inf')
+    if previous_best is not None:
+        best_state = copy.deepcopy(previous_best[0].state_dict())
+        best_epoch = previous_best[1]['bestEpoch']
+        best_loss = previous_best[1]['bestValidationMSE']
     with torch.no_grad():
         network.eval()
         initial_loss = float(torch.mean((network(train_x).reshape(-1)-train_y)**2))
@@ -70,11 +74,11 @@ def train_neural_blocks(network, optimizer, train_x, train_y, valid_x, valid_y,
             with torch.no_grad():
                 train_loss = float(torch.mean((network(train_x).reshape(-1)-train_y)**2))
                 valid_loss = float(torch.mean((network(valid_x).reshape(-1)-valid_y)**2))
-            epoch = (run-1)*epochs_per_run+inner_epoch
+            epoch = start_epoch+(run-1)*epochs_per_run+inner_epoch
             if valid_loss < best_loss:
                 best_loss, best_epoch = valid_loss, epoch
                 best_state = copy.deepcopy(network.state_dict())
-        record = dict(run=run, cumulativeEpochs=epoch, trainMSE=train_loss,
+        record = dict(run=start_epoch//epochs_per_run+run, cumulativeEpochs=epoch, trainMSE=train_loss,
                       validationMSE=valid_loss)
         records.append(record)
         print('CRDO_BACKPROP_RUN=' + json.dumps(record), flush=True)
@@ -105,15 +109,19 @@ def neural_experiment(train, valid, test):
     network = Net(input_dim=tx.shape[1], layers=(32,16))
     optimizer = torch.optim.Adam(network.parameters(), lr=.001, weight_decay=.01)
     selected, history = train_neural_blocks(network, optimizer, tx, ty, vx, vy)
-    # Test outcomes enter only reporting, after all 50 epochs and checkpoint selection.
+    print('CRDO_REPRODUCED_FIRST_50=' + json.dumps(history), flush=True)
+    selected, continued_history = train_neural_blocks(
+        network, optimizer, tx, ty, vx, vy, start_epoch=50, previous_best=(selected,history))
+    # Test outcomes enter only reporting, after all 100 epochs and checkpoint selection.
     with torch.no_grad():
         selected_pred = selected(tensor(test)).reshape(-1).numpy()
         final_pred = network(tensor(test)).reshape(-1).numpy()
     actual = test['label']['return_points'].to_numpy()
     print('CRDO_BACKPROP_RESULT=' + json.dumps(dict(
-        model='Qlib Net MLP (32,16), Adam backpropagation', totalEpochs=50,
-        trainingHistory=history, selectedMetrics=metrics(actual,selected_pred),
-        epoch50Metrics=metrics(actual,final_pred),
+        model='Qlib Net MLP (32,16), Adam backpropagation', totalEpochs=100,
+        reproducedFirst50=history, trainingHistory=continued_history,
+        selectedMetrics=metrics(actual,selected_pred),
+        epoch100Metrics=metrics(actual,final_pred),
         testStart=str(test.index[0][0].date()), testEnd=str(test.index[-1][0].date()),
         note='Previously examined historical holdout; validation-only checkpoint selection, not a new prospective test.'
     )), flush=True)
@@ -134,7 +142,8 @@ def main():
     from qlib.workflow import R
 
     # Exclude the current Eastern date, including partially completed sessions.
-    today = pd.Timestamp.now(tz='America/New_York').date().isoformat()
+    # Fixed cutoff keeps the repeat on precisely the original train/valid/test dates.
+    today = '2026-11-03'
     bars = yf.download('CRDO', start='1900-01-01', end=today, auto_adjust=True,
                        actions=True, progress=False, threads=False, multi_level_index=False)
     if bars.empty:

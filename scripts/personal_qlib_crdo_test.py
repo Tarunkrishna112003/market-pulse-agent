@@ -25,6 +25,12 @@ class TimingTests(unittest.TestCase):
         self.assertFalse(torch.equal(initial,network.weight))
         self.assertLess(result['runs'][-1]['trainMSE'],result['initialTrainMSE'])
         self.assertIsNot(selected,network)
+        selected_again, continued = train_neural_blocks(
+            network,optimizer,x,y,x[:30],y[:30],start_epoch=50,previous_best=(selected,result))
+        self.assertEqual(continued['runs'][0]['run'],11)
+        self.assertEqual(continued['runs'][-1]['cumulativeEpochs'],100)
+        self.assertEqual(int(optimizer.state[network.weight]['step']),200)
+        self.assertLessEqual(continued['bestValidationMSE'],result['bestValidationMSE'])
 
     def test_target_day_prices_cannot_change_target_day_features(self):
         dates = pd.bdate_range('2020-01-01', periods=500)
