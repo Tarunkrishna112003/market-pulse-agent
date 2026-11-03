@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
 for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
-const {parseRanges,movementRows,predictionRows,searchStocks,historyView,testDayView,csvText,stockPredictionView}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+const {parseRanges,movementRows,predictionRows,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
 after(()=>rm(dir,{recursive:true,force:true}));
 const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
 const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
@@ -21,15 +21,29 @@ test('volatility uses inclusive cap and movement ranges, absolute returns and th
  assert.equal(stocks[0].average,undefined);assert.throws(()=>parseRanges({minCap:200,maxCap:20}));
 });
 
-test('prediction filters retain independent ranges and exclude expired or mismatched target sessions',()=>{
+test('prediction filters retain independent ranges and preserve saved completed-session forecasts',()=>{
  const now=new Date('2026-10-30T12:00:00Z');
  const make=(percent,date='2026-10-30')=>({state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:date,estimatedPercent:percent});
  const forecasts=new Map([['APP',make(-.18)],['AAPL',make(.5)],['SMALL',make(2,'2026-10-29')]]);
  const options={minCap:0,maxCap:4000,minMove:0,maxMove:'',days:30,direction:'negative',minPrediction:-1,maxPrediction:0,availableOnly:true};
  assert.deepEqual(predictionRows(data,forecasts,options,now).map(s=>s.symbol),['APP']);
- assert.deepEqual(predictionRows(data,forecasts,{...options,direction:'all',minPrediction:'',maxPrediction:''},now).map(s=>s.symbol),['AAPL','APP']);
+ assert.deepEqual(predictionRows(data,forecasts,{...options,direction:'all',minPrediction:'',maxPrediction:''},now).map(s=>s.symbol),['SMALL','AAPL','APP']);
  assert.equal(predictionRows(data,forecasts,{...options,direction:'all',minPrediction:'',maxPrediction:'',availableOnly:false},now).length,3);
  assert.throws(()=>predictionRows(data,forecasts,{...options,minPrediction:2,maxPrediction:1},now),/valid minimum/);
+});
+
+test('market close keeps today’s forecast visible and stock details retain it without a top-25 ledger record',()=>{
+ const now=new Date('2026-10-30T22:00:00Z');
+ const forecast={state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:'2026-10-30',estimatedPercent:-.18,generatedAt:'2026-10-30T17:00:00Z'};
+ const map=new Map([['APP',forecast]]),options={minCap:0,maxCap:4000,minMove:0,maxMove:'',days:30,availableOnly:true};
+ const rows=predictionRows(data,map,options,now);
+ assert.equal(rows.length,1);assert.equal(rows[0].completed,true);assert.equal(rows[0].current,false);
+ const view=stockPredictionView('APP',map,null,null,now);
+ assert.equal(view.current,forecast);assert.equal(view.currentClosed,true);assert.equal(view.next,null);
+ assert.equal(view.records[0].percent,-.18);assert.equal(view.records[0].actual,null);
+ const absent={symbol:'APP',targetDate:'2026-10-30',lookback:365,returnBasis:'open-to-close',state:'no-signal',reason:'Historical prices unavailable',estimatedPercent:null,generatedAt:forecast.generatedAt};
+ const missing=stockPredictionView('APP',new Map([['APP',absent]]),null,{records:[absent]},now);
+ assert.equal(missing.latestAttempt.reason,'Historical prices unavailable');assert.equal(missing.records[0].percent,null);assert.equal(missing.records[0].directionCorrect,null);
 });
 
 test('explore searches all scanned stocks by ticker or company, independent of screener filters',()=>{
@@ -39,6 +53,11 @@ test('explore searches all scanned stocks by ticker or company, independent of s
  assert.deepEqual(searchStocks(stocks,'','watchlist',new Set(['SMALL'])).map(s=>s.symbol),['SMALL']);
  assert.deepEqual(searchStocks(stocks,'','decliners').map(s=>s.symbol),['AAPL']);
  assert.equal(searchStocks(stocks,'no-such-stock').length,0);
+ assert.equal(searchStocks([{symbol:'SPGI',name:'S&P Global Inc.'}],'S and P Global')[0].symbol,'SPGI');
+ assert.equal(searchStocks([{symbol:'BRK.B',name:'Berkshire Hathaway Inc.'}],'brk-b')[0].symbol,'BRK.B');
+ assert.equal(indexSearchResult('S and P 500').symbol,'^GSPC');
+ assert.equal(indexSearchResult('S&P500').symbol,'^GSPC');
+ assert.equal(indexSearchResult('Apple'),null);
 });
 
 test('range return uses the known preceding close and preserves volume and missing ranges',()=>{

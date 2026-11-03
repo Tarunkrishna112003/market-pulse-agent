@@ -33,6 +33,8 @@ on:
       - 'scripts/ml_prediction_test.py'
       - 'lib/trading-calendar.mjs'
       - 'scripts/prediction-agent.mjs'
+      - 'lib/published-forecasts.mjs'
+      - 'scripts/archive-published-forecasts.mjs'
       - 'scripts/news-sentiment.py'
       - '.github/actions/prediction-agent/**'
       - 'lib/stock-news.mjs'
@@ -84,7 +86,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = push ]; then
           while IFS= read -r changed_file; do
             case "$changed_file" in
-              scripts/ml-prediction.py|scripts/forecast_models.py|scripts/forecast_benchmark.py|scripts/forecast_runtime.py|scripts/forecast_features.py|scripts/forecast_research.py|scripts/stock_specific.py|scripts/stock_specific_runtime.py|scripts/prediction-agent.mjs|scripts/news-sentiment.py|lib/prediction.mjs|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/stock-specific-data.mjs|lib/trading-calendar.mjs|data/prediction-model.json|.github/actions/prediction-agent/*) refresh=true ;;
+              scripts/ml-prediction.py|scripts/forecast_models.py|scripts/forecast_benchmark.py|scripts/forecast_runtime.py|scripts/forecast_features.py|scripts/forecast_research.py|scripts/stock_specific.py|scripts/stock_specific_runtime.py|scripts/news-sentiment.py|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/stock-specific-data.mjs|lib/trading-calendar.mjs|data/prediction-model.json|.github/actions/prediction-agent/*) refresh=true ;;
             esac
           done < /tmp/forecast-changed-files.txt
           fi
@@ -99,6 +101,8 @@ jobs:
       - name: Train and compare next-session prediction models
         if: steps.forecast_changes.outputs.refresh == 'true'
         uses: ./.github/actions/prediction-agent
+      - name: Preserve every stock's published forecast in history
+        run: node scripts/archive-published-forecasts.mjs public-site
       - name: Prepare or preserve daily closing report
         run: node scripts/daily-report.mjs
       - name: Update next-week testing results

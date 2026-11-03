@@ -4,6 +4,7 @@ import {updateLedger,validationSummary,MODEL_VERSION,MODEL_SELECTION} from '../l
 import {trainingPrices,gatherTrainingData} from '../lib/supervised-data.mjs';
 import {easternSessionClock,nextForecastSession,tradingDay,previousTradingDay} from '../lib/trading-calendar.mjs';
 import {collectStockSpecificData} from '../lib/stock-specific-data.mjs';
+import {publishedForecastRows} from '../lib/published-forecasts.mjs';
 const site=process.argv[3]||'public-site',mode=process.argv[2],now=new Date();
 const data=JSON.parse(await readFile(site+'/data.json','utf8'));
 const bySymbol=new Map(data.stocks.map(s=>[s.symbol,s]));
@@ -34,7 +35,9 @@ if(mode==='--prepare'){
  const trained=JSON.parse(await readFile(site+'/prediction-trained.json','utf8'));if(trained.modelVersion!==MODEL_VERSION)throw Error('Trained model version differs from active selection');const trainedRows=new Map(trained.rows.map(r=>[r.symbol,r]));const rows=[...trained.rows,...stocks.filter(s=>!trainedRows.has(s.symbol)).map(s=>trainedRows.get(s.symbol)||{symbol:s.symbol,name:s.name,headlines:news.companies.find(c=>c.symbol===s.symbol)?.headlines||[],newsState:'unavailable',forecasts:[365].map(lookback=>({state:'no-signal',lookback,reason:'Historical training prices could not be retrieved'}))})];
  for(const row of rows)for(const f of row.forecasts||[])if(f.modelKey)f.modelQuality=trained.trainedModels.find(m=>m.adaptive);
  const training=JSON.parse(await readFile(site+'/prediction-training.json','utf8'));const evaluated=new Map(training.companies.map(c=>[c.symbol,{symbol:c.symbol,days:c.daily}]));
- const ledger=updateLedger(previous,data.stocks.map(s=>evaluated.get(s.symbol)||s),rows.filter(r=>stocks.some(s=>s.symbol===r.symbol)),new Date(training.generatedAt));
+ const tables=await Promise.all((trained.supportedLookbacks||[]).map(async days=>JSON.parse(await readFile(site+'/predictions/'+days+'.json','utf8'))));
+ for(const table of tables)if(table.rows.length!==data.stocks.length)throw Error('Incomplete full-universe forecast archive source');
+ const ledger=updateLedger(previous,data.stocks.map(s=>evaluated.get(s.symbol)||s),publishedForecastRows({reportId:data.report.id,generatedAt:training.generatedAt,modelVersion:MODEL_VERSION,rows},tables),new Date(training.generatedAt));
  for(const row of rows)for(const f of row.forecasts||[])if(f.modelKey)delete f.modelQuality;
  const result={returnBasis:'open-to-close',supportedLookbacks:trained.supportedLookbacks,state:trained.trainedModels.some(m=>m.trainingRows)?'trained':'unavailable',error:trained.trainedModels.filter(m=>m.error).map(m=>m.error).join('; '),reportId:data.report.id,scanCreatedAt:data.report.createdAt,generatedAt:now.toISOString(),availableLookback:365,modelVersion:MODEL_VERSION,trainedModels:trained.trainedModels,trainingErrors:trained.trainingErrors,dataCaveats:trained.dataCaveats,newsModel:news.model||null,newsModelState:news.modelState||'unavailable',newsErrors:news.errors||[],topSymbols:stocks.map(s=>s.symbol),coverage:{scope:'full-scan',stocks:data.stocks.length,total:data.report.total,sourceFailures:data.report.errors.length},rows,validation:[365].map(lookback=>({lookback,...validationSummary(ledger,lookback)}))};
  const tableWindows=trained.supportedLookbacks||[];

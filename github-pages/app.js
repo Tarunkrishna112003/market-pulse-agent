@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,searchStocks,historyView,testDayView,usableForecast,csvText,stockPredictionView} from './dashboard-data.mjs';
+import {parseRanges,movementRows,predictionRows,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView} from './dashboard-data.mjs';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
@@ -33,8 +33,8 @@ function route(){
 }
 function summaryCard(label,value,foot,icon){const box=el('div',null,'summary-card');append(box,el('span',label,'summary-label'),el('div',value,'summary-value'),el('div',foot,'summary-foot'));if(icon)box.append(el('span',icon,'summary-icon'));return box;}
 function renderStats(section){
- const target=$('overviewStats');target.replaceChildren();const report=state.data.report,available=[...state.forecasts.values()].filter(f=>usableForecast(f)).length;
- append(target,summaryCard('Scanned universe',fmt.number(state.data.stocks.length),'Stocks with usable histories','▥'),summaryCard(section==='explore'?'Matching your search':'Matching your range',fmt.number(section==='predictions'?state.predictions.length:section==='explore'?state.explore.length:state.volatility.length),section==='predictions'?'Current prediction filters':section==='explore'?'Current explore search':'Current volatility filters','⌁'),summaryCard('Current model forecasts',fmt.number(available),'Available in this snapshot','↗'),summaryCard('History available',report.filters.lookbackDays+' days','Calendar-day scan coverage','◷'));
+ const target=$('overviewStats');target.replaceChildren();const report=state.data.report,available=[...state.forecasts.values()].filter(f=>savedForecast(f)).length;
+ append(target,summaryCard('Scanned universe',fmt.number(state.data.stocks.length),'Stocks with usable histories','▥'),summaryCard(section==='explore'?'Matching your search':'Matching your range',fmt.number(section==='predictions'?state.predictions.length:section==='explore'?state.explore.length:state.volatility.length),section==='predictions'?'Current prediction filters':section==='explore'?'Current explore search':'Current volatility filters','⌁'),summaryCard('Saved model forecasts',fmt.number(available),'Recorded in this snapshot','↗'),summaryCard('History available',report.filters.lookbackDays+' days','Calendar-day scan coverage','◷'));
 }
 function renderVolatility(){
  try{const options=formValues($('volatilityFilters'));state.volFilters=parseRanges(options);state.volatility=movementRows(state.data,state.volFilters);$('volatilityFilterNote').textContent='The day filter changes historical movement statistics, not model training.';}
@@ -47,24 +47,25 @@ function renderVolatility(){
  $('volatilityTopCsv').disabled=!rows.length;$('volatilityAllCsv').disabled=!rows.length;renderStats('volatility');
 }
 function renderPredictions(){
- try{state.predictions=predictionRows(state.data,state.forecasts,formValues($('predictionFilters')));$('predictionFilterNote').textContent='The prediction covers the full session’s open-to-close return, including when generated after open. It does not predict the remaining intraday move.';}
+ try{state.predictions=predictionRows(state.data,state.forecasts,formValues($('predictionFilters')));$('predictionFilterNote').textContent='Saved forecasts remain visible after the session closes. Each forecast targets the displayed trading day’s full open-to-close change.';}
  catch(error){$('predictionFilterNote').textContent=error.message;return;}
  const rows=state.predictions,target=$('predictionRows');target.replaceChildren();
  for(const stock of rows.slice(0,state.predShown)){
   const tr=el('tr'),f=stock.forecast,pred=cell();
-  if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(f.generatedAfterOpen)pred.append(el('span','Generated after open','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
+  if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(stock.completed)pred.append(el('span','Completed session · saved forecast','after-open-badge'));if(f.generatedAfterOpen)pred.append(el('span','Generated after open','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
   append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(f?.targetDate||'—'),cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }
- if(!rows.length)emptyRow(target,6,'No available forecasts match these ranges. Widen the filters or turn off “Available forecasts only” to see missing and expired records.');
+ if(!rows.length)emptyRow(target,6,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
  $('predictionCount').textContent=fmt.number(rows.length);$('predictionSummary').textContent=`Sorted by absolute forecast move · ${state.metadata?.modelVersion||'Model information unavailable'}`;
  $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;renderStats('predictions');
 }
 function renderSectionSearch(section){
  const prefix=section==='predictions'?'prediction':'volatility',query=$(prefix+'Search').value.trim(),target=$(prefix+'SearchResults');target.replaceChildren();target.hidden=!query;
  if(!query){$(prefix+'SearchStatus').textContent='';return;}
- const rows=searchStocks(state.data.stocks,query,'all',state.watchlist);
- $(prefix+'SearchStatus').textContent=rows.length?`${fmt.number(rows.length)} matching stocks${rows.length>20?' · showing the first 20; refine your search for more specific results':''}`:'No stock found in the latest scan. Try another ticker or company name.';
+ const rows=searchStocks(state.data.stocks,query,'all',state.watchlist),index=indexSearchResult(query);
+ if(index){const link=el('a',null,'stock-search-result');link.href=index.url;link.target='_blank';link.rel='noopener noreferrer';append(link,append(el('div'),el('strong',index.name),el('span',index.symbol+' · Market index','company-name')),el('span','View index on Yahoo Finance ↗'));target.append(link);}
+ $(prefix+'SearchStatus').textContent=index?'S&P 500 is a market index. Its quote opens on Yahoo Finance; this dashboard stores forecasts for individual scanned stocks.':rows.length?`${fmt.number(rows.length)} matching stocks${rows.length>20?' · showing the first 20; refine your search for more specific results':''}`:'No stock found in the latest scan. Try another ticker or company name.';
  for(const stock of rows.slice(0,20)){
   const link=el('a',null,'stock-search-result');link.href='#explore/'+encodeURIComponent(stock.symbol)+'?from='+section;
   append(link,append(el('div'),el('strong',stock.symbol),el('span',stock.name||stock.symbol,'company-name')),append(el('div',null,'search-result-quote'),el('strong',fmt.money(stock.price)),el('span',fmt.pct(stock.change)+' latest daily change',stock.change>=0?'positive':'negative')));target.append(link);
@@ -77,7 +78,8 @@ function renderStockForecasts(stock,target){
  append(next,el('span','Next trading session · '+view.targetDate,'summary-label'),el('strong',view.next?fmt.pct(view.next.estimatedPercent):'Not available',view.next?(view.next.estimatedPercent>=0?'positive':'negative'):''));
  next.append(el('p',view.next?'Generated '+time(view.next.generatedAt||state.metadata?.generatedAt)+' · '+(view.next.generatedAfterOpen?'After-open update':'Before-open forecast'):'No saved forecast for this session in the loaded snapshot.'));
  if(view.next)next.append(el('small',view.next.modelVersion||state.metadata?.modelVersion||''));cards.append(next);
- if(view.current){const current=el('div',null,'stock-forecast-card');append(current,el('span','Current session · '+view.current.targetDate,'summary-label'),el('strong',fmt.pct(view.current.estimatedPercent),view.current.estimatedPercent>=0?'positive':'negative'),el('p','Generated '+time(view.current.generatedAt||state.metadata?.generatedAt)+(view.current.generatedAfterOpen?' · After-open update':'')));cards.append(current)}
+ if(view.latestAttempt){const missing=el('div',null,'stock-forecast-card');append(missing,el('span','Latest forecast attempt · '+(view.latestAttempt.targetDate||'Session unavailable'),'summary-label'),el('strong','Unavailable'),el('p',view.latestAttempt.reason||'No usable forecast was generated for this stock.'));cards.append(missing)}
+ if(view.current){const current=el('div',null,'stock-forecast-card');append(current,el('span',(view.currentClosed?'Today’s completed session · ':'Current session · ')+view.current.targetDate,'summary-label'),el('strong',fmt.pct(view.current.estimatedPercent),view.current.estimatedPercent>=0?'positive':'negative'),el('p','Generated '+time(view.current.generatedAt||state.metadata?.generatedAt)+(view.current.generatedAfterOpen?' · After-open update':'')));cards.append(current)}
  box.append(cards);append(box,append(el('div',null,'surface-heading'),append(el('div'),el('h3','Previous predictions'),el('p','Morning records and after-open updates are listed separately. Actual moves are shown as saved by each source and can differ. Error is in percentage points.'))));
  const wrap=el('div',null,'table-wrap'),table=el('table'),head=el('thead'),hr=el('tr');for(const title of ['Trading day','Forecast record','Predicted change','Actual change','Error · pts','Direction','Generated / model'])hr.append(el('th',title));head.append(hr);table.append(head);const body=el('tbody');body.id='stockPredictionHistory';
  for(const row of view.records){const tr=el('tr'),metadata=cell();append(metadata,el('span',time(row.generatedAt)),el('small',row.modelVersion||'Model unavailable'));append(tr,cell(row.date),cell(row.record),cell(fmt.pct(row.percent),row.percent>=0?'positive':'negative'),cell(fmt.pct(row.actual),row.actual>=0?'positive':'negative'),cell(row.error===null?'—':row.error.toFixed(2)),cell(row.directionCorrect===null?'Pending actual':row.directionCorrect?'Correct':'Wrong',row.directionCorrect===null?'':row.directionCorrect?'positive':'negative'),metadata);body.append(tr)}

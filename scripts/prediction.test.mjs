@@ -25,6 +25,17 @@ test('open-to-close ledger waits for closing data and does not score a missing o
  const legacy=[{...previous[0],returnBasis:'scan-to-close',baseClose:100}];
  assert.equal(updateLedger(legacy,bars,[],new Date('2026-10-13T21:00:00Z'))[0].actualPercent,104);
 });
+
+test('ledger preserves distinct updates for every stock without overwriting first forecasts or pruning history',()=>{
+ const first=forecast(365),later={...first,estimatedPercent:-2,generatedAfterOpen:true,generatedAt:'2026-10-12T17:00:00Z'};
+ const rows=[{symbol:'ALAB',forecasts:[first]},{symbol:'SMALL',forecasts:[first]}];
+ const initial=updateLedger([],[],rows,now);
+ const next=updateLedger(initial,[],[{symbol:'ALAB',forecasts:[later]}],now);
+ assert.equal(next.length,3);assert.deepEqual(next.find(r=>r.id===initial[0].id),initial[0]);
+ assert.equal(updateLedger(next,[],[{symbol:'ALAB',forecasts:[later]}],now).length,3);
+ const old=Array.from({length:50001},(_,i)=>({id:'old-'+i,symbol:'OLD'+i,generatedAt:'2025-01-01T00:00:00Z',actualPercent:0}));
+ assert.equal(updateLedger(old,[],rows,now).length,50003);
+});
 test('RSS parsing ignores future articles, stale items, duplicates and unsafe URLs',()=>{
  const item=(title,date='Mon, 12 Oct 2026 14:00:00 GMT',url='https://example.com/a')=>`<item><title>${title}</title><link>${url}</link><pubDate>${date}</pubDate></item>`;const xml='<rss>'+item('Astera Labs wins contract')+item('Astera Labs wins contract')+item('Astera Labs news','Tue, 13 Oct 2026 14:00:00 GMT')+item('Astera Labs old news','Mon, 01 Jun 2026 14:00:00 GMT')+item('Astera Labs funding',undefined,'javascript:alert(1)')+'</rss>';const parsed=parseNews(xml,'CNBC',now);assert.equal(parsed.length,1);assert.equal(parsed[0].source,'CNBC');assert.equal(companyMatches(stock(),parsed[0].title),true);assert.equal(companyMatches(stock(),'Another company gets funding'),false);assert.equal(companyMatches({symbol:'ON',name:'ON Semiconductor Corporation'},'On Monday another company raised funds'),false);
 });
