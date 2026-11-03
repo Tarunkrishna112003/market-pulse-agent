@@ -18,7 +18,7 @@ class RollingTimingTests(unittest.TestCase):
                                        after.loc[(dates[800],'CRDO'),'feature'])
         self.assertEqual(set(before.index.get_level_values('instrument')),{'CRDO'})
         tested=[]
-        for train,valid,test in rolling_splits(before):
+        for train,valid,test in rolling_splits(before,folds=6,train_size=504):
             self.assertEqual(len(valid),60)
             self.assertEqual(len(test),30)
             self.assertLessEqual(len(train),504)
@@ -27,6 +27,10 @@ class RollingTimingTests(unittest.TestCase):
             tested.extend(test.index)
         self.assertEqual(len(tested),180)
         self.assertEqual(len(set(tested)),180)
+        train,valid,test=next(rolling_splits(before))
+        self.assertEqual(len(train),len(before)-90)
+        self.assertEqual(train.index[0],before.index[0])
+        self.assertEqual(len(test),30)
 
 
 if __name__=='__main__':unittest.main()

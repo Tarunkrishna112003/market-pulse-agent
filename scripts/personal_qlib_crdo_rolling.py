@@ -29,11 +29,11 @@ def context_samples(crdo, contexts):
     return frame.replace([np.inf,-np.inf],np.nan).dropna().sort_index()
 
 
-def rolling_splits(frame, folds=6, test_size=30, valid_size=60, train_size=504):
+def rolling_splits(frame, folds=1, test_size=30, valid_size=60, train_size=None):
     if len(frame) < folds*test_size+valid_size+350:
         raise ValueError('Too little CRDO history for the declared rolling experiment')
     for start in range(len(frame)-folds*test_size,len(frame),test_size):
-        train = frame.iloc[max(0,start-valid_size-train_size):start-valid_size]
+        train = frame.iloc[0 if train_size is None else max(0,start-valid_size-train_size):start-valid_size]
         valid = frame.iloc[start-valid_size:start]
         test = frame.iloc[start:start+test_size]
         assert train.index[-1][0] < valid.index[0][0] < test.index[0][0]
@@ -114,7 +114,7 @@ def main():
     from qlib.workflow import R
     torch.use_deterministic_algorithms(True)
     def download(symbol):
-        bars=yf.download(symbol,start='2022-01-01',end=CUTOFF,auto_adjust=True,
+        bars=yf.download(symbol,start='1900-01-01',end=CUTOFF,auto_adjust=True,
                          progress=False,threads=False,multi_level_index=False)
         if bars.empty:raise ValueError(f'Missing required source {symbol}')
         bars.index=pd.to_datetime(bars.index).tz_localize(None)
@@ -158,11 +158,12 @@ def main():
             print('CRDO_ROLLING_FOLD='+json.dumps(record),flush=True)
             for day,real,pred in zip(test.index,actual,predictions['corrected_neural_context']):
                 print(f'CRDO_ROLLING_DAY={day[0].date()},{pred:.4f},{real:.4f}',flush=True)
-    result=dict(targets=['CRDO'],contextOnly=['QQQ','SOXX','^VIX'],folds=6,sessions=180,
+    result=dict(targets=['CRDO'],contextOnly=['QQQ','SOXX','^VIX'],folds=len(records),sessions=len(totals['zero_return']['actual']),
+                firstAvailableDate=str(crdo.index[0].date()),rawRows=len(crdo),
                 aggregate={name:metrics(np.array(value['actual']),np.array(value['predicted']))
                            for name,value in totals.items()},
                 latestFold=records[-1],
-                note='Historical development benchmark; last 30 dates previously examined. No prospective claim. Each fold trains independently using only earlier CRDO labels; no test-driven tuning.')
+                note='All available CRDO history before 60 validation and 30 test sessions; no training window cap. Historical development benchmark; test dates previously examined. No prospective claim or test-driven tuning.')
     print('CRDO_ROLLING_RESULT='+json.dumps(result),flush=True)
 
 
