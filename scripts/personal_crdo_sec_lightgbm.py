@@ -12,10 +12,10 @@ from personal_crdo_sources import (public_fetch,sec_records,sec_features,parse_t
                                   tipranks_features,public_tables,SEC_URL,TIP_FORECAST,TIP_PRICES)
 
 
-def fit_predict(frame):
+def fit_predict(frame, test_size=30):
     import lightgbm as lgb
     if len(frame)<440:raise ValueError('Insufficient CRDO training history')
-    train,valid,test=frame.iloc[:-90],frame.iloc[-90:-30],frame.iloc[-30:]
+    train,valid,test=frame.iloc[:-(test_size+60)],frame.iloc[-(test_size+60):-test_size],frame.iloc[-test_size:]
     if train.index[-1][0]>=valid.index[0][0] or valid.index[-1][0]>=test.index[0][0]:
         raise ValueError('Overlapping chronological segments')
     params=dict(objective='regression',n_estimators=500,learning_rate=.025,
@@ -27,7 +27,7 @@ def fit_predict(frame):
               eval_set=[(valid['feature'],valid['label']['return_points'])],
               callbacks=[lgb.early_stopping(40,verbose=False)])
     # Tree count fixed by earlier validation. Final fit includes every pre-test label.
-    earlier=frame.iloc[:-30]
+    earlier=frame.iloc[:-test_size]
     params['n_estimators']=tuned.best_iteration_
     model=lgb.LGBMRegressor(**params)
     model.fit(earlier['feature'],earlier['label']['return_points'])
