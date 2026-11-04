@@ -104,6 +104,10 @@ test('stock details use saved history, separate late records, and require the ex
  assert.equal(stockPredictionView('UNKNOWN',new Map(),testing,ledger,now).records.length,0);
  const duringSession=stockPredictionView('APP',new Map([['APP',forecast]]),null,null,new Date('2026-11-02T17:00:00Z'));
  assert.equal(duringSession.targetDate,'2026-11-03');assert.equal(duringSession.next,null);assert.equal(duringSession.current,forecast);
+ const nextDay={...forecast,targetDate:'2026-11-03'};
+ const savedToday={records:[{symbol:'APP',targetDate:'2026-11-02',lookback:365,returnBasis:'open-to-close',estimatedPercent:-.7,actualPercent:-1,generatedAt:'2026-11-02T17:00:00Z'}]};
+ const afterClose=stockPredictionView('APP',new Map([['APP',nextDay]]),null,savedToday,new Date('2026-11-02T23:00:00Z'));
+ assert.equal(afterClose.next,nextDay);assert.equal(afterClose.current.estimatedPercent,-.7);assert.equal(afterClose.currentClosed,true);assert.equal(afterClose.records[0].actual,-1);
 });
 
 test('exchange labels use recorded listing metadata and distinguish NASDAQ from NYSE',()=>{

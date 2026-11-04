@@ -95,7 +95,8 @@ export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date
  const targetDate=nextForecastSession(now),forecast=forecasts.get(symbol);
  const next=forecast?.targetDate===targetDate&&usableForecast(forecast,now)?forecast:null;
  const today=easternSessionClock(now).date;
- const current=savedForecast(forecast)&&forecast.targetDate===today?forecast:null;
+ const todaySaved=(ledger?.records||[]).filter(row=>row.symbol===symbol&&row.targetDate===today&&row.returnBasis==='open-to-close'&&row.lookback===365&&Number.isFinite(row.estimatedPercent)).sort((a,b)=>String(b.generatedAt||'').localeCompare(String(a.generatedAt||'')))[0];
+ const current=savedForecast(forecast)&&forecast.targetDate===today?forecast:todaySaved?{...todaySaved,state:'estimated',forecastModel:todaySaved.forecastModel||'supervised'}:null;
  const records=[],seen=new Set();
  const add=row=>{
   if(!row.date||row.date>=targetDate||!Number.isFinite(row.percent)&&!row.reason)return;

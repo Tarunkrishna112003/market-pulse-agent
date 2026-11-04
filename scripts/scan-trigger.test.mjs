@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scanTriggerDecision,triggerDueScan} from '../lib/github-scan-trigger.mjs';
+import {scanTriggerDecision,triggerDueScan,afterCloseWindow,needsClosingRefresh} from '../lib/github-scan-trigger.mjs';
 const completed='2026-10-08T19:10:19Z';
 const success={status:'completed',conclusion:'success',updated_at:completed};
 const threeHours=3*60*60*1000;
@@ -37,4 +37,33 @@ test('not-due check never dispatches and API errors do not start blind scans',as
  const result=await triggerDueScan({repository:'owner/repo',token:'fixture',now:Date.parse(completed)+60000,fetchImpl:async()=>{calls++;return {ok:true,json:async()=>({workflow_runs:[success]})}}});assert.equal(result.due,false);assert.equal(calls,1);
  await assert.rejects(triggerDueScan({repository:'owner/repo',token:'fixture',fetchImpl:async()=>({ok:false,status:403})}),/history/);
  let requests=0;await assert.rejects(triggerDueScan({repository:'owner/repo',token:'fixture',fetchImpl:async()=>++requests===1?{ok:true,json:async()=>({workflow_runs:[]})}:{ok:false,status:403}}),/trigger/);
+});
+
+test('closing freshness follows actual close, DST, holidays and completed training labels',()=>{
+ const stale={trainedModels:[{trainingTargetEnd:'2026-11-02'}],rows:[{forecasts:[{state:'estimated',targetDate:'2026-11-03',estimatedPercent:1}]}]};
+ const fresh={trainedModels:[{trainingTargetEnd:'2026-11-03'}],rows:[{forecasts:[{state:'estimated',targetDate:'2026-11-04',estimatedPercent:1}]}]};
+ assert.equal(afterCloseWindow(Date.parse('2026-11-03T21:14:00Z')),false);
+ assert.equal(needsClosingRefresh(stale,Date.parse('2026-11-03T21:17:00Z')),true);
+ assert.equal(needsClosingRefresh(fresh,Date.parse('2026-11-03T21:17:00Z')),false);
+ assert.equal(afterCloseWindow(Date.parse('2026-10-30T20:17:00Z')),true);
+ assert.equal(afterCloseWindow(Date.parse('2026-11-26T21:17:00Z')),false);
+ assert.equal(afterCloseWindow(Date.parse('2026-11-27T18:17:00Z')),true);
+});
+
+test('stale closing forecasts trigger a guarded retry without exposing GitHub credentials',async()=>{
+ const now=Date.parse('2026-11-03T21:47:00Z');
+ const early={status:'completed',conclusion:'success',created_at:'2026-11-03T21:00:00Z',updated_at:'2026-11-03T21:05:00Z'};
+ const calls=[];
+ const result=await triggerDueScan({repository:'owner/repo',token:'fixture',now,checkAfterClose:true,fetchImpl:async(url,options)=>{
+  calls.push({url,options});
+  if(calls.length===1)return {ok:true,json:async()=>({workflow_runs:[early]})};
+  if(calls.length===2)return {ok:true,json:async()=>({rows:[],trainedModels:[]})};
+  return {ok:true,status:204};
+ }});
+ assert.equal(result.triggered,true);assert.equal(calls.length,3);
+ assert.match(calls[1].url,/owner.github.io\/repo\/predictions.json/);
+ assert.equal(calls[1].options.headers,undefined);
+ let requests=0;
+ const active=await triggerDueScan({repository:'owner/repo',token:'fixture',now,checkAfterClose:true,fetchImpl:async()=>{requests++;return {ok:true,json:async()=>({workflow_runs:[{status:'in_progress'}]})}}});
+ assert.equal(active.triggered,undefined);assert.equal(requests,1);
 });

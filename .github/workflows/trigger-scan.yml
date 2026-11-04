@@ -2,6 +2,8 @@ name: Check Pacific scan schedule
 on:
   schedule:
     - cron: '0,20,40 * * * *'
+    # Extra checks after regular and early closes, in either US daylight offset.
+    - cron: '17,47 18-23 * * 1-5'
   workflow_dispatch:
 permissions:
   actions: write
