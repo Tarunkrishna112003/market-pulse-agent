@@ -70,6 +70,13 @@ class ExtendedStockFeatures:
         self.daily = DailyStockFeatures(dataset)
         self.names = None
         self.market_columns = None
+        self.hourly_by_day = {}
+        for company in dataset['companies']:
+            days = {}
+            for bar in company.get('hourly', []):
+                day = datetime.fromtimestamp(bar['timestamp'], EASTERN).date().isoformat()
+                days.setdefault(day, []).append(bar)
+            self.hourly_by_day[company['symbol']] = days
 
     def __getattr__(self, name):
         return getattr(self.daily, name)
@@ -77,7 +84,9 @@ class ExtendedStockFeatures:
     def features(self, symbol, target):
         row = self.daily.features(symbol, target)
         prior = next(b for b in reversed(self.bars[symbol]) if b['date'] < target)
-        extra = extended_features(self.companies[symbol], prior, target, row['scale'])
+        days = self.hourly_by_day[symbol]
+        company = {**self.companies[symbol], 'hourly':days.get(prior['date'], [])+days.get(target, [])}
+        extra = extended_features(company, prior, target, row['scale'])
         row['x'] = np.r_[row['x'][:-2], list(extra.values()), row['x'][-2:]].astype(np.float32)
         self.names = self.daily.names[:-2]+list(extra)+self.daily.names[-2:]
         self.market_columns = self.daily.market_columns
