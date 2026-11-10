@@ -1,5 +1,9 @@
 name: Supervised stock prediction agent
 description: Process top 25 prices and company news locally on the GitHub runner
+inputs:
+  extended-hours:
+    description: Include prior postmarket and same-day premarket through 5 AM Pacific
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -26,6 +30,8 @@ runs:
       run: python scripts/news-sentiment.py public-site/prediction-news.json public-site/prediction-sentiment.json
     - name: Gather historical prices and news for supervised training
       shell: bash
+      env:
+        EXTENDED_HOURS_SCAN: ${{ inputs.extended-hours == 'true' && '1' || '0' }}
       run: node scripts/prediction-agent.mjs --stock-training-data
     - name: Test leakage controls and train candidate forecasting models
       shell: bash

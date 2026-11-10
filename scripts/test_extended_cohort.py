@@ -140,6 +140,7 @@ def main():
         return {name:metrics(actual,np.array([r['predictions'][name] for r in rows])) for name in models}
     result = dict(testStart=test_dates[0],testEnd=test_dates[-1],sessions=30,stocks=len(cohort),
         expectedComparisons=750,pairedComparisons=len(paired),bothExtendedSessionsAvailable=len(covered),
+        completeExtendedVolumeComparisons=sum(r['coverage']['post_volume_missing']==0 and r['coverage']['pre_volume_missing']==0 for r in covered),
         training=training,allPaired=score(paired),extendedCoverageOnly=score(covered),
         perStock={s['symbol']:score([r for r in paired if r['symbol']==s['symbol']]) for s in cohort},
         errors=errors,productionModified=False,

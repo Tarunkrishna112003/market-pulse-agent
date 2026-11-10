@@ -5,6 +5,10 @@ from zoneinfo import ZoneInfo
 import numpy as np
 from extended_hours import cutoff_at, extended_features, ExtendedStockFeatures
 import stock_specific_test
+import stock_specific_runtime_test
+from unittest.mock import patch
+import tempfile
+from stock_specific_runtime import train_and_predict
 
 
 class ExtendedHoursTests(unittest.TestCase):
@@ -55,6 +59,34 @@ class ExtendedHoursTests(unittest.TestCase):
                 if bar['date']>=target:bar.update(open=1,close=1000000,high=9999999,low=.1)
         np.testing.assert_array_equal(row['x'],ExtendedStockFeatures(changed).features('A',target)['x'])
         first.features('B',target)  # Repeated calls preserve the schema.
+
+    def test_scan_adapter_waits_for_cutoff_and_requires_extended_observations(self):
+        data=stock_specific_runtime_test.LiveStockTests().dataset()
+        data['extendedHoursEnabled']=True
+        target=data['companies'][0]['forecastContext']['targetDate']
+        class FakeModel:
+            def __init__(self,**kwargs):
+                if kwargs['years']!=5:raise AssertionError('Five-year training must be retained')
+            def fit(self,rows,cutoff,columns):
+                self.training_end=max(r['targetDate'] for r in rows)
+                return self
+            def predict(self,rows):return np.zeros(len(rows))
+        with tempfile.TemporaryDirectory() as folder, patch('stock_specific_runtime.StockSpecificReturnModel',FakeModel),patch('stock_specific_runtime.joblib.dump'):
+            forecasts,_=train_and_predict(data,{'family':'direction-aware','version':'test'},folder)
+            self.assertTrue(all('Waiting for the 5 AM' in f['reason'] for f in forecasts.values()))
+            data['generatedAt']=target+'T13:00:00Z'
+            forecasts,_=train_and_predict(data,{'family':'direction-aware','version':'test'},folder)
+            self.assertTrue(all('observations unavailable' in f['reason'] for f in forecasts.values()))
+            for company in data['companies']:
+                prior=company['daily'][-1]['date']
+                price=company['daily'][-1]['close']
+                bars=[self.bar(prior+'T16:00'),self.bar(target+'T07:00')]
+                for bar in bars:
+                    for key in ('open','high','low','close'):bar[key]*=price/100
+                company['hourly']=bars
+            forecasts,metadata=train_and_predict(data,{'family':'direction-aware','version':'test'},folder)
+            self.assertEqual(metadata['trainingHistoryDays'],1825)
+            self.assertTrue(all(f['state']=='estimated' and f['inputCutoffAt'].startswith(target+'T05:00') for f in forecasts.values()))
 
 
 if __name__=='__main__':unittest.main()

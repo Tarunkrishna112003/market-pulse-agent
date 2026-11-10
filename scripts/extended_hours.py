@@ -94,6 +94,7 @@ class ExtendedStockFeatures:
         row['x'] = np.r_[row['x'][:-2], list(extra.values()), row['x'][-2:]].astype(np.float32)
         self.names = self.daily.names[:-2]+list(extra)+self.daily.names[-2:]
         self.market_columns = self.daily.market_columns
-        row['extendedCoverage'] = {key:extra[key] for key in ('post_missing','pre_missing','post_bars','pre_bars')}
+        row['extendedCoverage'] = {key:extra[key] for key in ('post_missing','pre_missing','post_bars','pre_bars',
+            'post_volume_missing','pre_volume_missing','post_vwap_missing','pre_vwap_missing')}
         row['inputCutoffAt'] = cutoff_at(target).isoformat()
         return row

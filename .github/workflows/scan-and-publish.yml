@@ -2,6 +2,9 @@ name: Scan NASDAQ and NYSE and publish dashboard
 on:
   workflow_dispatch:
     inputs:
+      extended_hours:
+        description: Use five-year daily training plus 5 AM Pacific extended-hours inputs (experimental)
+        default: 'false'
       lookback_days:
         description: Calendar days to fetch (1–365)
         default: '365'
@@ -61,6 +64,8 @@ jobs:
           MAX_MOVE: ${{ github.event_name == 'schedule' && '5' || inputs.max_move }}
       - name: Analyse top 25 prices and company news
         uses: ./.github/actions/prediction-agent
+        with:
+          extended-hours: ${{ inputs.extended_hours || 'false' }}
       - name: Prepare daily top-25 closing report
         run: node scripts/daily-report.mjs
       - name: Update next-week testing results
