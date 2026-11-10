@@ -1,4 +1,4 @@
-"""Original saved testing cohort, fixed 30-session holdout, GitHub runner only."""
+"""Original cohort plus a fixed expansion, 30-session holdout, GitHub runner only."""
 import json
 import os
 import subprocess
@@ -22,6 +22,34 @@ def calendar(start, end):
     return json.loads(subprocess.check_output(['node','--input-type=module','-e',code,start,end], text=True))
 
 
+# Fixed before evaluating outcomes. No selection by test-period returns or errors.
+EXPANSION_SYMBOLS = """AAPL MSFT NVDA AMZN GOOGL GOOG META TSLA AVGO AMD INTC QCOM
+TXN MU AMAT LRCX KLAC ASML ADI NXPI MCHP ON SNPS CDNS ANET CSCO IBM ORCL CRM
+ADBE NOW INTU PANW CRWD FTNT ZS DDOG NET SNOW MDB SHOP NFLX DIS CMCSA CHTR
+TMUS VZ T BAC JPM WFC C GS MS BLK SCHW AXP V MA PYPL XYZ FIS FISV
+WMT COST TGT HD LOW NKE SBUX MCD YUM CMG KO PEP MDLZ KHC PG CL KMB
+JNJ PFE MRK ABBV ABT BMY AMGN GILD REGN VRTX LLY UNH CVS CI HUM ISRG
+XOM CVX COP EOG SLB OXY CAT DE HON GE LMT RTX NOC GD UNP UPS FDX DAL UAL
+BA DUK SO NEE D AEP EXC AMT PLD EQIX SPG O PSA WELL DLR CCI LIN APD SHW
+ECL FCX NEM GOLD NUE STLD DOW DD F GM RIVN LCID UBER ABNB BKNG MAR HLT""".split()
+
+
+def expand_cohort(original, size):
+    if size not in (25,100):
+        raise ValueError('Supported cohort sizes are 25 and 100')
+    result = [dict(stock) for stock in original]
+    seen = {s['symbol'] for s in result}
+    for symbol in EXPANSION_SYMBOLS:
+        if len(result)>=size:
+            break
+        if symbol not in seen:
+            result.append({'symbol':symbol,'name':symbol})
+            seen.add(symbol)
+    if len(result)!=size:
+        raise ValueError('Not enough unique preselected stocks')
+    return result
+
+
 def main():
     if (os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_ENVIRONMENT')!='github-hosted'
             or os.environ.get('GITHUB_REF_NAME')!='personal-test'):
@@ -31,6 +59,9 @@ def main():
     schedule = calendar((now-timedelta(days=2300)).date().isoformat(), (now+timedelta(days=10)).date().isoformat())
     today = now.date().isoformat()
     completed = [d for d, s in schedule.items() if d<today or d==today and now.hour*60+now.minute>=s['closeMinute']+15]
+    test_end = os.environ.get('TEST_END_DATE')
+    if test_end:
+        completed = [d for d in completed if d<=test_end]
     test_dates = completed[-30:]
     cutoff, end = test_dates[0], (datetime.fromisoformat(test_dates[-1])+timedelta(days=1)).date().isoformat()
     url = 'https://tarunkrishna112003.github.io/market-pulse-agent/testing-results.json'
@@ -39,6 +70,8 @@ def main():
     cohort = saved['stocks']
     if len(cohort)!=25 or len({s['symbol'] for s in cohort})!=25:
         raise ValueError('Expected the original fixed 25-stock testing cohort')
+    cohort = expand_cohort(cohort,int(os.environ.get('COHORT_SIZE','25')))
+    expected = len(cohort)*30
     print('COHORT='+json.dumps({'source':url,'cohortSession':saved.get('cohortSession'),'stocks':cohort,'testDates':test_dates}), flush=True)
     errors = []
     def download(symbol, hourly=False):
@@ -139,14 +172,16 @@ def main():
         actual = np.array([r['actual'] for r in rows])
         return {name:metrics(actual,np.array([r['predictions'][name] for r in rows])) for name in models}
     result = dict(testStart=test_dates[0],testEnd=test_dates[-1],sessions=30,stocks=len(cohort),
-        expectedComparisons=750,pairedComparisons=len(paired),bothExtendedSessionsAvailable=len(covered),
+        expectedComparisons=expected,pairedComparisons=len(paired),bothExtendedSessionsAvailable=len(covered),
         completeExtendedVolumeComparisons=sum(r['coverage']['post_volume_missing']==0 and r['coverage']['pre_volume_missing']==0 for r in covered),
         training=training,allPaired=score(paired),extendedCoverageOnly=score(covered),
+        original25=score([r for r in paired if r['symbol'] in {s['symbol'] for s in saved['stocks']}]),
         perStock={s['symbol']:score([r for r in paired if r['symbol']==s['symbol']]) for s in cohort},
         errors=errors,productionModified=False,
         limitations=['Last 30 completed exchange sessions, not calendar days.',
             'Shared fixed 150-tree model trained on up to five years ending before the entire holdout; no test-label fitting.',
             'Retrospective cohort and dates have been examined previously; not prospective validation.',
+            'Expansion is a fixed list chosen before outcomes, not a historical point-in-time universe; survivorship/selection bias remains.',
             'Hourly OHLCV: only fully completed buckets before 05:00 Pacific. Not tick-level or full 5-minute premarket.',
             'Raw price basis matches live collector; unresolved splits/discontinuities are rejected.',
             'Absent extended bars are marked missing; coverage does not establish provider feed completeness.',
@@ -154,12 +189,12 @@ def main():
     print('EXTENDED_COHORT_RESULT='+json.dumps(result), flush=True)
     for row in records:
         print('SESSION_COMPARISON='+json.dumps(row), flush=True)
-    summary = ['### Extended-hours test: original 25-stock cohort',f'{test_dates[0]} through {test_dates[-1]} · 05:00 Pacific cutoff',
-        f'{len(paired)}/750 paired comparisons; {len(covered)} with both extended sessions observed.',
+    summary = [f'### Extended-hours test: {len(cohort)} stocks (includes original 25)',f'{test_dates[0]} through {test_dates[-1]} · 05:00 Pacific cutoff',
+        f'{len(paired)}/{expected} paired comparisons; {len(covered)} with both extended sessions observed.',
         '| Model | Direction accuracy | MAE (points) | MSE (points²) |','|---|---:|---:|---:|']
     for name, metric in (result['allPaired'] or {}).items():
         summary.append(f"| {name} | {metric['directionAccuracy']:.1%} | {metric['maePoints']:.4f} | {metric['msePointsSquared']:.4f} |")
-    summary.extend(['','Missing data never becomes fabricated extended-hours activity. See per-stock scores, coverage, and all 750 comparisons in logs.'])
+    summary.extend(['','Missing data never becomes fabricated extended-hours activity. See per-stock scores, coverage, and all session comparisons in logs.'])
     Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('\n'.join(summary)+'\n')
 
 

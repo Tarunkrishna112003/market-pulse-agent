@@ -9,9 +9,17 @@ import stock_specific_runtime_test
 from unittest.mock import patch
 import tempfile
 from stock_specific_runtime import train_and_predict
+from test_extended_cohort import expand_cohort
 
 
 class ExtendedHoursTests(unittest.TestCase):
+    def test_fixed_expansion_keeps_original_cohort_and_has_100_unique_stocks(self):
+        original=[{'symbol':'ORIGINAL'+str(i)} for i in range(25)]
+        expanded=expand_cohort(original,100)
+        self.assertEqual(expanded[:25],original)
+        self.assertEqual(len({s['symbol'] for s in expanded}),100)
+        self.assertEqual(expanded,expand_cohort(original,100))
+
     def bar(self, when, close=105, volume=100):
         stamp=datetime.fromisoformat(when).replace(tzinfo=ZoneInfo('America/New_York'))
         return dict(timestamp=stamp.timestamp(),open=100,high=max(106,close),low=99,
