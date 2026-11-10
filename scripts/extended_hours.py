@@ -38,27 +38,31 @@ def extended_features(company, prior, target, scale):
             continue
         if bar['low']>min(bar['open'],bar['close']) or bar['high']<max(bar['open'],bar['close']):
             continue
-        if not isinstance(bar.get('volume'), (int,float)) or not np.isfinite(bar['volume']) or bar['volume']<=0:
-            continue
         groups[group].append((start, end, bar))
     values = {}
     for label, raw in groups.items():
         selected = sorted(raw, key=lambda row: row[0])
         values[label+'_missing'] = float(not selected)
         values[label+'_bars'] = float(len(selected))
+        values[label+'_volume_missing'] = 1.
+        values[label+'_vwap_missing'] = 1.
         for name in ('gap','momentum','range','volume_ratio','vwap_distance','age_minutes'):
             values[label+'_'+name] = 0.
         if not selected:
             continue
         bars = [row[2] for row in selected]
         first, last = bars[0], bars[-1]
-        volume = sum(b['volume'] for b in bars)
-        vwap = sum((b['high']+b['low']+b['close'])/3*b['volume'] for b in bars)/volume
+        observed_volume = [b for b in bars if isinstance(b.get('volume'),(int,float)) and np.isfinite(b['volume']) and b['volume']>0]
+        volume = sum(b['volume'] for b in observed_volume)
         values[label+'_gap'] = 100*np.log(last['close']/base)/scale
         values[label+'_momentum'] = 100*np.log(last['close']/first['open'])/scale
         values[label+'_range'] = 100*np.log(max(b['high'] for b in bars)/min(b['low'] for b in bars))/scale
-        values[label+'_volume_ratio'] = volume/normal_volume
-        values[label+'_vwap_distance'] = 100*np.log(last['close']/vwap)/scale
+        if observed_volume:
+            values[label+'_volume_missing'] = float(len(observed_volume)!=len(bars))
+            values[label+'_volume_ratio'] = volume/normal_volume
+            vwap = sum((b['high']+b['low']+b['close'])/3*b['volume'] for b in observed_volume)/volume
+            values[label+'_vwap_distance'] = 100*np.log(last['close']/vwap)/scale
+            values[label+'_vwap_missing'] = float(len(observed_volume)!=len(bars))
         endpoint = cutoff if label == 'pre' else datetime.combine(datetime.fromisoformat(previous).date(), time(20), EASTERN)
         values[label+'_age_minutes'] = (endpoint-selected[-1][1]).total_seconds()/60
     values['overnight_continuation'] = (values['pre_gap']-values['post_gap']) if groups['pre'] and groups['post'] else 0.

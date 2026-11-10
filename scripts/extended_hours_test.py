@@ -38,8 +38,10 @@ class ExtendedHoursTests(unittest.TestCase):
         company,prior=self.data();prior['closeMinute']=780
         company['hourly']=[self.bar('2026-11-06T13:00'),self.bar('2026-11-09T07:00',volume=0)]
         result=extended_features(company,prior,'2026-11-09',1)
-        self.assertEqual(result['post_bars'],1);self.assertEqual(result['pre_missing'],1)
-        self.assertEqual(result['pre_gap'],0)
+        self.assertEqual(result['post_bars'],1);self.assertEqual(result['pre_missing'],0)
+        self.assertEqual(result['pre_volume_missing'],1)
+        self.assertEqual(result['pre_vwap_missing'],1)
+        self.assertGreater(result['pre_gap'],0)
 
     def test_builder_keeps_categorical_ids_last_and_daily_future_isolation(self):
         dataset=stock_specific_test.StockSpecificTests().dataset()

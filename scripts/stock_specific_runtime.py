@@ -35,14 +35,14 @@ def train_and_predict(data,config,artifact_directory):
     builder=(ExtendedStockFeatures if extended else DailyStockFeatures)(data);directory=Path(artifact_directory);directory.mkdir(parents=True,exist_ok=True)
     target_dates={c['forecastContext']['targetDate'] for c in data['companies']}
     if len(target_dates)!=1:raise ValueError('Mixed prediction target sessions')
-    target=next(iter(target_dates));years=5 if config['family']=='per-stock' else 1
+    target=next(iter(target_dates));years=5 if config['family']=='per-stock' or extended else 1
     selected={c['symbol'] for c in data['companies'] if config['family']=='per-stock' or c.get('sharedTraining',not c.get('inferenceOnly'))}
     models={};training_counts={};skip_count=0;all_rows=[];training_end=[]
     if config['family']=='direction-aware':
         for symbol in sorted(selected):
             rows,skipped=build_stock_rows(builder,symbol,target,years);skip_count+=skipped;all_rows.extend(rows);training_counts[symbol]=len(rows)
         if len(all_rows)<200:raise ValueError('Insufficient completed training examples')
-        model=StockSpecificReturnModel(direction_weight=.1,years=1,market=True).fit(all_rows,target,builder.market_columns)
+        model=StockSpecificReturnModel(direction_weight=.1,years=years,market=True).fit(all_rows,target,builder.market_columns)
         models['shared']=model;training_end.append(model.training_end)
         del all_rows
     elif config['family']=='per-stock':

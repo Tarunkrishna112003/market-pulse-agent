@@ -79,7 +79,11 @@ def main():
                 hourly = []
                 errors.append(dict(symbol=symbol,source='extended hours',error=str(error)))
             companies.append(dict(**stock,daily=daily,hourly=hourly,sector=stock.get('sector','Unknown'),sectorETF=None))
-            print('COLLECTED='+json.dumps(dict(symbol=symbol,daily=len(daily),hourly=len(hourly))), flush=True)
+            hours = {}
+            for bar in hourly:
+                hour = datetime.fromtimestamp(bar['timestamp'],ZoneInfo('America/New_York')).hour
+                hours[str(hour)] = hours.get(str(hour),0)+1
+            print('COLLECTED='+json.dumps(dict(symbol=symbol,daily=len(daily),hourly=len(hourly),easternHourCounts=hours)), flush=True)
         except Exception as error:
             errors.append(dict(symbol=symbol,source='daily',error=str(error)))
         time.sleep(.3)
@@ -98,12 +102,12 @@ def main():
     for name, builder in builders.items():
         rows = []
         for company in companies:
-            samples, _ = build_stock_rows(builder,company['symbol'],cutoff,years=1)
+            samples, _ = build_stock_rows(builder,company['symbol'],cutoff,years=5)
             rows.extend(samples)
         if len(rows)<200:
             raise ValueError('Insufficient chronological training examples')
         training[name] = dict(rows=len(rows),lastLabel=max(r['targetDate'] for r in rows))
-        models[name] = StockSpecificReturnModel(years=1).fit(rows,cutoff,builder.market_columns)
+        models[name] = StockSpecificReturnModel(years=5).fit(rows,cutoff,builder.market_columns)
     records = []
     for stock in cohort:
         symbol = stock['symbol']
@@ -140,7 +144,7 @@ def main():
         perStock={s['symbol']:score([r for r in paired if r['symbol']==s['symbol']]) for s in cohort},
         errors=errors,productionModified=False,
         limitations=['Last 30 completed exchange sessions, not calendar days.',
-            'Shared fixed 150-tree model trained on one year ending before the entire holdout; no test-label fitting.',
+            'Shared fixed 150-tree model trained on up to five years ending before the entire holdout; no test-label fitting.',
             'Retrospective cohort and dates have been examined previously; not prospective validation.',
             'Hourly OHLCV: only fully completed buckets before 05:00 Pacific. Not tick-level or full 5-minute premarket.',
             'Raw price basis matches live collector; unresolved splits/discontinuities are rejected.',
