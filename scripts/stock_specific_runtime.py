@@ -11,6 +11,7 @@ import sys
 import joblib
 import numpy as np
 from stock_specific import DailyStockFeatures,StockSpecificReturnModel,PerStockReturnModel,good_bar
+from extended_hours import ExtendedStockFeatures,cutoff_at
 
 
 def build_stock_rows(builder,symbol,cutoff,years=5):
@@ -30,7 +31,8 @@ def build_stock_rows(builder,symbol,cutoff,years=5):
 
 
 def train_and_predict(data,config,artifact_directory):
-    builder=DailyStockFeatures(data);directory=Path(artifact_directory);directory.mkdir(parents=True,exist_ok=True)
+    extended=bool(data.get('extendedHoursEnabled'))
+    builder=(ExtendedStockFeatures if extended else DailyStockFeatures)(data);directory=Path(artifact_directory);directory.mkdir(parents=True,exist_ok=True)
     target_dates={c['forecastContext']['targetDate'] for c in data['companies']}
     if len(target_dates)!=1:raise ValueError('Mixed prediction target sessions')
     target=next(iter(target_dates));years=5 if config['family']=='per-stock' else 1
@@ -52,7 +54,7 @@ def train_and_predict(data,config,artifact_directory):
             if i%50==0:print(f'Fitted individual stock models: {i+1}/{len(selected)}',flush=True)
     else:raise ValueError('Unsupported explicitly selected model family')
     if not models:raise ValueError('No stock model could be fitted')
-    metrics={'model':config['family'],'features':'stock-specific completed OHLCV patterns and market/sector context',
+    metrics={'model':config['family'],'features':'stock-specific completed OHLCV patterns and market/sector context'+(' plus prior postmarket and 5 AM Pacific premarket' if extended else ''),
         'modelVersion':config['version'],'trainingRows':sum(training_counts.values()),'trainingRowsBySymbol':training_counts,
         'skippedFeatureRows':skip_count,'trainingTargetEnd':max(training_end),'trainingHistoryDays':years*365,
         'probabilityCalibration':'none','validationPassed':False,'validationStatus':'experimental-user-selected',
@@ -68,7 +70,11 @@ def train_and_predict(data,config,artifact_directory):
         base.update(sessionMode='current-or-next',generatedAfterOpen=bool(data.get('generatedAfterOpen')))
         try:
             if context['state']!='ready':raise ValueError(context.get('reason','Incomplete prior session'))
+            if extended and datetime.fromisoformat(data['generatedAt'].replace('Z','+00:00'))<cutoff_at(target):
+                raise ValueError('Waiting for the 5 AM Pacific premarket input cutoff')
             row=builder.features(symbol,target)
+            if extended and any(row['extendedCoverage'][key] for key in ('pre_missing','post_missing')):
+                raise ValueError('Premarket or prior postmarket observations unavailable at the 5 AM cutoff')
             model=models.get('shared') if config['family']=='direction-aware' else models.get(symbol)
             if model is None:raise ValueError('Insufficient clean history to train this stock; no legacy fallback')
             percent=float(model.predict([row])[0])
@@ -80,6 +86,8 @@ def train_and_predict(data,config,artifact_directory):
                 'validationPassed':False,'experimental':True,'confidenceStatus':'experimental','modelQuality':metrics}
             forecast['estimates']={'openToClose':{'state':'estimated','targetDate':target,'returnBasis':'open-to-close','estimatedPercent':percent,'validationPassed':False,'confidenceStatus':'experimental'},
                 'closeToClose':{'state':'no-signal','targetDate':target,'returnBasis':'close-to-close','estimatedPercent':None,'validationPassed':False,'reason':'This selected model was trained for open-to-close returns only'}}
+            if extended:
+                forecast.update(inputCutoffAt=row['inputCutoffAt'],extendedCoverage=row['extendedCoverage'])
             forecasts[symbol]=forecast
         except (ValueError,KeyError,TypeError) as error:forecasts[symbol]={**base,'reason':str(error)}
     return forecasts,metrics
@@ -87,6 +95,8 @@ def train_and_predict(data,config,artifact_directory):
 
 def run(dataset_path,sentiment_path,output_path,config):
     data=json.loads(Path(dataset_path).read_text());news=json.loads(Path(sentiment_path).read_text())
+    if data.get('extendedHoursEnabled'):
+        config={**config,'version':config['version']+'-extended-5am-v1'}
     if news.get('reportId')!=data['reportId']:raise ValueError('Sentiment and training report differ')
     forecasts,metrics=train_and_predict(data,config,Path('prediction-models'))
     output=Path(output_path);tables=output.parent/'predictions';tables.mkdir(parents=True,exist_ok=True)
@@ -104,7 +114,7 @@ def run(dataset_path,sentiment_path,output_path,config):
     (tables/'365.json').write_text(json.dumps({'reportId':data['reportId'],'lookback':365,'modelVersion':config['version'],'trainingHistoryDays':metrics['trainingHistoryDays'],'rows':compact},allow_nan=False))
     result={'modelVersion':config['version'],'returnBasis':'open-to-close','supportedLookbacks':[365],'rows':rows,'trainedModels':[{'lookback':0,'adaptive':True,**metrics}],
             'trainingErrors':data.get('errors',[]),'dataCaveats':['Experimental model selected by user despite failing the historical joint improvement gate.',
-            'Only complete prior sessions are inputs; current-session quotes and target opens are not features.',
+            ('Completed prior daily sessions plus prior postmarket and target premarket buckets ending by 5 AM Pacific; target regular-session opens are excluded.' if data.get('extendedHoursEnabled') else 'Only complete prior sessions are inputs; current-session quotes and target opens are not features.'),
             'Individual training history varies by ticker and IPO date. Invalid or insufficient history produces no signal.',
             'The 365 endpoint is retained for dashboard compatibility; trainingHistoryDays records the actual training cap.']}
     output.write_text(json.dumps(result,allow_nan=False));print(f"Wrote {len(compact)} forecasts using {config['version']}",flush=True)

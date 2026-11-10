@@ -11,7 +11,7 @@ const stocks=(data.report.top25||data.report.stocks||[]).slice(0,25).map(s=>bySy
 if(mode==='--prepare'){
  const news=await gatherPredictionNews(stocks,{now});news.reportId=data.report.id;await writeFile(site+'/prediction-news.json',JSON.stringify(news));console.log(`Fetched company news for ${stocks.length} stocks; ${news.errors.length} source failures.`);
 }else if(mode==='--stock-training-data'){
- const dataset=await collectStockSpecificData(data,{now,historyDays:MODEL_SELECTION.family==='per-stock'?2200:800});
+ const dataset=await collectStockSpecificData(data,{now,historyDays:MODEL_SELECTION.family==='per-stock'?2200:800,extendedHours:process.env.EXTENDED_HOURS_SCAN==='1'});
  await writeFile(site+'/prediction-training.json',JSON.stringify(dataset));
  console.log(`Stock-specific dataset: ${dataset.companies.length} companies; ${dataset.errors.length} source failures.`);
 }else if(mode==='--training-data'){
