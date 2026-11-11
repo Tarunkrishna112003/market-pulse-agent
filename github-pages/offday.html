@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Predictions off day · Market Pulse</title><link rel="stylesheet" href="style.css?v=offday-1"></head>
+<body class="dashboard">
+<a class="skip-link" href="#mainContent">Skip to content</a>
+<button class="nav-backdrop" id="navBackdrop" aria-label="Close navigation" hidden></button>
+<aside class="sidebar" aria-label="Main navigation" id="sidebar">
+<a class="brand" href="index.html#volatility"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>Market<span class="brand-light">Pulse</span></span></a>
+<div class="workspace-label">YOUR WORKSPACE</div>
+<nav class="main-nav"><a href="index.html#volatility">Volatility report</a><a href="index.html#predictions">Predictions</a><a href="index.html#explore">Explore stocks</a><a href="index.html#testing">Testing results</a><a href="offday.html" aria-current="page">Predictions off day</a></nav>
+<div class="sidebar-note"><span class="status-dot"></span>NASDAQ &amp; NYSE<p>5 AM Pacific inputs<br>Regular session open → close</p></div>
+</aside>
+<div class="dashboard-main">
+<header class="topbar"><button class="menu-button" id="menuButton" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button><div class="breadcrumb">Workspace <span>/</span> <strong>Predictions off day</strong></div><span class="snapshot-chip" id="updatedAt">Loading archive</span></header>
+<main id="mainContent" tabindex="-1">
+<div class="page-heading"><div><div class="eyebrow">PREMARKET &amp; POSTMARKET</div><h1>Predictions off day</h1><p>Previous postmarket and premarket through 5 AM Pacific, predicting the regular session’s open-to-close move.</p></div><span class="snapshot-pill">Experimental model</span></div>
+<p class="notice" id="offdayStatus" role="status">Loading saved predictions…</p>
+<div class="surface search-surface"><label for="offdaySearch">Find a stock</label><div class="search-box"><span aria-hidden="true">⌕</span><input id="offdaySearch" type="search" placeholder="Search ticker or company name" autocomplete="off"></div></div>
+<div class="surface">
+<div class="surface-heading"><div><h2 id="offdayTitle">Daily predictions</h2><p id="offdaySummary"></p></div><label>Trading day <select id="offdayDate" aria-label="Trading day"></select></label></div>
+<div class="table-wrap"><table><thead><tr><th>Company / ticker</th><th>Predicted open → close</th><th>Actual open → close</th><th>Error · points</th><th>Result</th></tr></thead><tbody id="offdayRows"></tbody></table></div>
+<div class="table-footer"><span id="offdayCount"></span><button class="text-button" id="offdayMore" hidden>Show more stocks ↓</button></div>
+</div>
+<section class="surface" id="offdayHistory" aria-labelledby="historyTitle" hidden><div class="surface-heading"><div><h2 id="historyTitle"></h2><p>Daily saved forecasts and their recorded actual moves.</p></div><button class="secondary-button" id="historyClose">Close history</button></div><p class="field-note" id="historyStatus" role="status"></p><div class="table-wrap"><table><thead><tr><th>Trading day</th><th>Predicted open → close</th><th>Actual open → close</th><th>Error · points</th><th>Result</th><th>Published</th></tr></thead><tbody id="offdayHistoryRows"></tbody></table></div></section>
+<footer class="dashboard-footer"><span>Market Pulse · NASDAQ &amp; NYSE</span><span>Forecasts use completed hourly bars. Extended-hours volume availability varies.</span></footer>
+</main></div><script type="module" src="offday.js"></script>
+</body></html>
