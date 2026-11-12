@@ -90,6 +90,22 @@ export function csvText(headers,rows){
  return '\uFEFF'+[headers,...rows].map(row=>row.map(escape).join(',')).join('\r\n')+'\r\n';
 }
 
+// Keep the first morning prediction for each session, before the next scheduled scan.
+const predictionClock=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'});
+function morningPredictionRecords(records){
+ const daily=new Map();
+ for(const row of records){
+  if(!Number.isFinite(row.percent)||!Number.isFinite(Date.parse(row.generatedAt)))continue;
+  const parts=Object.fromEntries(predictionClock.formatToParts(new Date(row.generatedAt)).map(p=>[p.type,p.value]));
+  const date=parts.year+'-'+parts.month+'-'+parts.day,hour=Number(parts.hour);
+  if(date!==row.date||hour<5||hour>=13)continue;
+  const saved=daily.get(row.date);
+  if(!saved||Date.parse(row.generatedAt)<Date.parse(saved.generatedAt))daily.set(row.date,{...row,record:'5 AM scan'});
+  else if(Date.parse(row.generatedAt)===Date.parse(saved.generatedAt)&&saved.actual===null&&row.actual!==null)daily.set(row.date,{...saved,actual:row.actual,error:row.error,directionCorrect:row.directionCorrect});
+ }
+ return [...daily.values()].sort((a,b)=>b.date.localeCompare(a.date));
+}
+
 // Only saved forecasts are displayed here; historical prices are never treated as forecasts.
 export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date()){
  const targetDate=nextForecastSession(now),forecast=forecasts.get(symbol);
@@ -111,5 +127,5 @@ export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date
  }
  for(const row of ledger?.records||[])if(row.symbol===symbol&&row.returnBasis==='open-to-close'&&row.lookback===365)add({date:row.targetDate,percent:row.estimatedPercent,reason:row.reason,actual:row.actualPercent,generatedAt:row.generatedAt,modelVersion:row.modelVersion,afterOpen:row.generatedAfterOpen===true,record:row.reason&&!Number.isFinite(row.estimatedPercent)?'No forecast · '+row.reason:row.generatedAfterOpen?'Published after-open forecast':'Saved forecast'});
  if(savedForecast(forecast))add({date:forecast.targetDate,percent:forecast.estimatedPercent,generatedAt:forecast.generatedAt,modelVersion:forecast.modelVersion,afterOpen:forecast.generatedAfterOpen===true,record:'Saved forecast'});
- return {targetDate,next,current,currentClosed:current?sessionExpired(current.targetDate,now):false,latestAttempt:forecast&&!savedForecast(forecast)?forecast:null,records:records.sort((a,b)=>b.date.localeCompare(a.date)||String(b.generatedAt||'').localeCompare(String(a.generatedAt||'')))};
+ return {targetDate,next,current,currentClosed:current?sessionExpired(current.targetDate,now):false,latestAttempt:forecast&&!savedForecast(forecast)?forecast:null,records:morningPredictionRecords(records)};
 }

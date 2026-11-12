@@ -43,7 +43,7 @@ test('market close keeps today’s forecast visible and stock details retain it 
  assert.equal(view.records[0].percent,-.18);assert.equal(view.records[0].actual,null);
  const absent={symbol:'APP',targetDate:'2026-10-30',lookback:365,returnBasis:'open-to-close',state:'no-signal',reason:'Historical prices unavailable',estimatedPercent:null,generatedAt:forecast.generatedAt};
  const missing=stockPredictionView('APP',new Map([['APP',absent]]),null,{records:[absent]},now);
- assert.equal(missing.latestAttempt.reason,'Historical prices unavailable');assert.equal(missing.records[0].percent,null);assert.equal(missing.records[0].directionCorrect,null);
+ assert.equal(missing.latestAttempt.reason,'Historical prices unavailable');assert.equal(missing.records.length,0);
 });
 
 test('explore searches all scanned stocks by ticker or company, independent of screener filters',()=>{
@@ -88,7 +88,7 @@ test('dashboard exposes four separate accessible sections and a complete explore
  const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
 });
 
-test('stock details use saved history, separate late records, and require the exact next-session forecast',()=>{
+test('stock details keep only the first morning prediction per day and require the exact next-session forecast',()=>{
  const now=new Date('2026-11-01T18:00:00Z'),forecast={symbol:'APP',state:'estimated',returnBasis:'open-to-close',forecastModel:'supervised',sessionMode:'current-or-next',targetDate:'2026-11-02',estimatedPercent:1.2};
  const prediction={percent:-2,generatedAt:'2026-10-30T12:00:00Z',modelVersion:'v10'};
  const testing={entries:[{symbol:'APP',date:'2026-10-30',prediction,actual:{percent:-1},lateForecasts:[{percent:0.5,generatedAt:'2026-10-30T17:00:00Z',modelVersion:'v10'}]}]};
@@ -97,9 +97,9 @@ test('stock details use saved history, separate late records, and require the ex
  {symbol:'APP',targetDate:'2026-10-28',lookback:30,returnBasis:'scan-to-close',estimatedPercent:9},
  {symbol:'OTHER',targetDate:'2026-10-30',lookback:365,returnBasis:'open-to-close',estimatedPercent:9}]};
  const view=stockPredictionView('APP',new Map([['APP',forecast]]),testing,ledger,now);
- assert.equal(view.targetDate,'2026-11-02');assert.equal(view.next,forecast);assert.equal(view.records.length,3);
- assert.equal(view.records.find(r=>r.record==='Frozen morning test').error,1);
- assert.equal(view.records.find(r=>r.afterOpen).directionCorrect,false);assert.equal(view.records.find(r=>r.date==='2026-10-29').actual,null);
+ assert.equal(view.targetDate,'2026-11-02');assert.equal(view.next,forecast);assert.equal(view.records.length,1);
+ assert.equal(view.records.find(r=>r.record==='5 AM scan').error,1);
+ assert.equal(view.records[0].percent,-2);assert.equal(view.records[0].directionCorrect,true);
  assert.equal(stockPredictionView('APP',new Map([['APP',{...forecast,targetDate:'2026-10-30'}]]),null,null,now).next,null);
  assert.equal(stockPredictionView('UNKNOWN',new Map(),testing,ledger,now).records.length,0);
  const duringSession=stockPredictionView('APP',new Map([['APP',forecast]]),null,null,new Date('2026-11-02T17:00:00Z'));
@@ -116,4 +116,25 @@ test('exchange labels use recorded listing metadata and distinguish NASDAQ from 
  assert.equal(tickerLabel({symbol:'AAPL',exchange:'NMS'}),'AAPL · NASDAQ');
  assert.equal(tickerLabel({symbol:'IBM',exchange:'NYSE'}),'IBM · NYSE');
  assert.equal(exchangeLabel({symbol:'UNKNOWN'}),'Exchange unavailable');
+});
+
+
+test('morning history applies to every symbol, respects Pacific daylight saving, and ignores later scans',()=>{
+ const row=(symbol,date,generatedAt,estimatedPercent)=>({symbol,targetDate:date,generatedAt,estimatedPercent,lookback:365,returnBasis:'open-to-close'});
+ for(const symbol of ['APP','AAPL','SMALL']){
+  const ledger={records:[
+   row(symbol,'2026-10-30','2026-10-30T20:05:00Z',9),
+   row(symbol,'2026-10-30','2026-10-30T12:20:00Z',2),
+   row(symbol,'2026-10-30','2026-10-30T12:05:00Z',1),
+   row(symbol,'2026-10-30','2026-10-30T11:59:00Z',8),
+   row(symbol,'2026-11-02','2026-11-02T13:05:00Z',3),
+   row(symbol,'2026-11-02','2026-11-02T12:59:00Z',7),
+   row(symbol,'2026-11-03','2026-11-03T21:00:00Z',6),
+   row(symbol,'2026-11-04','2026-11-04T13:05:00Z',null),
+  ]};
+  const before=JSON.stringify(ledger);
+  const view=stockPredictionView(symbol,new Map(),null,ledger,new Date('2026-11-10T23:00:00Z'));
+  assert.deepEqual(view.records.map(r=>[r.date,r.percent]),[['2026-11-02',3],['2026-10-30',1]]);
+  assert.equal(JSON.stringify(ledger),before);
+ }
 });
