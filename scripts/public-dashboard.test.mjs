@@ -139,10 +139,13 @@ test('morning history applies to every symbol, respects Pacific daylight saving,
  }
 });
 
-test('general prediction results hide estimates generated at or after the open',()=>{
- const forecast={state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:'2026-10-30',estimatedPercent:1,generatedAt:'2026-10-30T13:30:00Z'};
- const forecasts=new Map([['APP',forecast]]);
- const now=new Date('2026-10-30T17:00:00Z');
- assert.equal(predictionRows(data,forecasts,{minCap:20,maxCap:200,days:30,availableOnly:true},now).length,0);
- assert.equal(stockPredictionView('APP',forecasts,null,null,now).current,null);
+test('general predictions retain November 18 records and reject late estimates from November 19',()=>{
+ const forecast={state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',estimatedPercent:1};
+ const options={minCap:20,maxCap:200,days:30,availableOnly:true};
+ const historical=new Map([['APP',{...forecast,targetDate:'2026-11-18',generatedAt:'2026-11-18T16:32:00Z'}]]);
+ const late=new Map([['APP',{...forecast,targetDate:'2026-11-19',generatedAt:'2026-11-19T14:30:00Z'}]]);
+ const now=new Date('2026-11-19T17:00:00Z');
+ assert.equal(predictionRows(data,historical,options,now).length,1);
+ assert.equal(predictionRows(data,late,options,now).length,0);
+ assert.equal(stockPredictionView('APP',late,null,null,now).current,null);
 });
