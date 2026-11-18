@@ -53,7 +53,7 @@ function renderPredictions(){
  const rows=state.predictions,target=$('predictionRows');target.replaceChildren();
  for(const stock of rows.slice(0,state.predShown)){
   const tr=el('tr'),f=stock.forecast,pred=cell();
-  if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(stock.completed)pred.append(el('span','Completed session · saved forecast','after-open-badge'));if(f.generatedAfterOpen)pred.append(el('span','Generated after open','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
+  if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(stock.completed)pred.append(el('span','Completed session · saved forecast','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
   append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(f?.targetDate||'—'),cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }

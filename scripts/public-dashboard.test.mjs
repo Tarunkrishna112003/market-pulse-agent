@@ -34,7 +34,7 @@ test('prediction filters retain independent ranges and preserve saved completed-
 
 test('market close keeps today’s forecast visible and stock details retain it without a top-25 ledger record',()=>{
  const now=new Date('2026-10-30T22:00:00Z');
- const forecast={state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:'2026-10-30',estimatedPercent:-.18,generatedAt:'2026-10-30T17:00:00Z'};
+ const forecast={state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:'2026-10-30',estimatedPercent:-.18,generatedAt:'2026-10-30T13:29:59Z'};
  const map=new Map([['APP',forecast]]),options={minCap:0,maxCap:4000,minMove:0,maxMove:'',days:30,availableOnly:true};
  const rows=predictionRows(data,map,options,now);
  assert.equal(rows.length,1);assert.equal(rows[0].completed,true);assert.equal(rows[0].current,false);
@@ -105,7 +105,7 @@ test('stock details keep only the first morning prediction per day and require t
  const duringSession=stockPredictionView('APP',new Map([['APP',forecast]]),null,null,new Date('2026-11-02T17:00:00Z'));
  assert.equal(duringSession.targetDate,'2026-11-03');assert.equal(duringSession.next,null);assert.equal(duringSession.current,forecast);
  const nextDay={...forecast,targetDate:'2026-11-03'};
- const savedToday={records:[{symbol:'APP',targetDate:'2026-11-02',lookback:365,returnBasis:'open-to-close',estimatedPercent:-.7,actualPercent:-1,generatedAt:'2026-11-02T17:00:00Z'}]};
+ const savedToday={records:[{symbol:'APP',targetDate:'2026-11-02',lookback:365,returnBasis:'open-to-close',estimatedPercent:-.7,actualPercent:-1,generatedAt:'2026-11-02T14:29:59Z'}]};
  const afterClose=stockPredictionView('APP',new Map([['APP',nextDay]]),null,savedToday,new Date('2026-11-02T23:00:00Z'));
  assert.equal(afterClose.next,nextDay);assert.equal(afterClose.current.estimatedPercent,-.7);assert.equal(afterClose.currentClosed,true);assert.equal(afterClose.records[0].actual,-1);
 });
@@ -137,4 +137,12 @@ test('morning history applies to every symbol, respects Pacific daylight saving,
   assert.deepEqual(view.records.map(r=>[r.date,r.percent]),[['2026-11-02',3],['2026-10-30',1]]);
   assert.equal(JSON.stringify(ledger),before);
  }
+});
+
+test('general prediction results hide estimates generated at or after the open',()=>{
+ const forecast={state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',targetDate:'2026-10-30',estimatedPercent:1,generatedAt:'2026-10-30T13:30:00Z'};
+ const forecasts=new Map([['APP',forecast]]);
+ const now=new Date('2026-10-30T17:00:00Z');
+ assert.equal(predictionRows(data,forecasts,{minCap:20,maxCap:200,days:30,availableOnly:true},now).length,0);
+ assert.equal(stockPredictionView('APP',forecasts,null,null,now).current,null);
 });
