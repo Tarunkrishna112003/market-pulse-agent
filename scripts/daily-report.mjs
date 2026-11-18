@@ -3,7 +3,7 @@ import {buildDailyReport,dailyReportCSV,dailyReportMarkdown} from '../lib/daily-
 const site=process.argv[2]||'public-site';
 const data=JSON.parse(await readFile(site+'/data.json','utf8'));
 let forecasts;try{forecasts=JSON.parse(await readFile(site+'/predictions/365.json','utf8'))}catch{forecasts={reportId:data.report.id,lookback:365,rows:[]}}
-const report=buildDailyReport(data,forecasts);
+const report=forecasts.reportId===data.report.id?buildDailyReport(data,forecasts):null;
 const base='https://tarunkrishna112003.github.io/market-pulse-agent/';
 const previousResponse=await fetch(base+'daily-report.json',{signal:AbortSignal.timeout(30000),cache:'no-store'});if(!previousResponse.ok&&previousResponse.status!==404)throw Error('Cannot restore daily report');const previous=previousResponse.ok?await previousResponse.json():null;
 if(report&&(!previous||previous.sessionDate<report.sessionDate)){

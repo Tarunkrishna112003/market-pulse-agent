@@ -1,6 +1,6 @@
 import {normalizeFilters} from './filters.mjs';
 import {stockHistory} from './stock-history.mjs';
-import {forecastSessionForModel,sessionExpired,nextForecastSession,easternSessionClock} from './trading-calendar.mjs';
+import {afterOpenForecast,forecastSessionForModel,sessionExpired,nextForecastSession,easternSessionClock} from './trading-calendar.mjs';
 
 export {exchangeLabel,tickerLabel} from './exchange.mjs';
 
@@ -22,27 +22,19 @@ export function movementRows(data,filters){
  }).sort((a,b)=>b.average-a.average||a.symbol.localeCompare(b.symbol));
 }
 
-function afterOpen(forecast,date=forecast?.targetDate){
- if(forecast?.generatedAfterOpen===true)return true;
- const generated=Date.parse(forecast?.generatedAt);
- if(!date||!Number.isFinite(generated))return false;
- const clock=easternSessionClock(new Date(generated));
- return clock.date>date||clock.date===date&&clock.minute>=570;
-}
-
 export function usableForecast(forecast,now=new Date()){
- return Boolean(forecast?.state==='estimated'&&!afterOpen(forecast)&&forecast.returnBasis==='open-to-close'&&forecast.forecastModel==='supervised'&&Number.isFinite(forecast.estimatedPercent)&&forecast.targetDate===forecastSessionForModel(forecast,now)&&!sessionExpired(forecast.targetDate,now));
+ return Boolean(forecast?.state==='estimated'&&!afterOpenForecast(forecast)&&forecast.returnBasis==='open-to-close'&&forecast.forecastModel==='supervised'&&Number.isFinite(forecast.estimatedPercent)&&forecast.targetDate===forecastSessionForModel(forecast,now)&&!sessionExpired(forecast.targetDate,now));
 }
 
 export function savedForecast(forecast){
- return Boolean(forecast?.state==='estimated'&&!afterOpen(forecast)&&forecast.returnBasis==='open-to-close'&&forecast.forecastModel==='supervised'&&Number.isFinite(forecast.estimatedPercent)&&/^\d{4}-\d{2}-\d{2}$/.test(forecast.targetDate||''));
+ return Boolean(forecast?.state==='estimated'&&!afterOpenForecast(forecast)&&forecast.returnBasis==='open-to-close'&&forecast.forecastModel==='supervised'&&Number.isFinite(forecast.estimatedPercent)&&/^\d{4}-\d{2}-\d{2}$/.test(forecast.targetDate||''));
 }
 
 export function predictionRows(data,forecasts,options,now=new Date()){
  const filters=parseRanges(options),min=options.minPrediction===''||options.minPrediction==null?null:Number(options.minPrediction),max=options.maxPrediction===''||options.maxPrediction==null?null:Number(options.maxPrediction);
  if(min!==null&&!Number.isFinite(min)||max!==null&&!Number.isFinite(max)||min!==null&&max!==null&&min>max)throw Error('Enter a valid minimum and maximum predicted change.');
  return movementRows(data,filters).flatMap(stock=>{
-  const saved=forecasts.get(stock.symbol),forecast=afterOpen(saved)?undefined:saved,available=savedForecast(forecast),p=available?forecast.estimatedPercent:null;
+  const saved=forecasts.get(stock.symbol),forecast=afterOpenForecast(saved)?undefined:saved,available=savedForecast(forecast),p=available?forecast.estimatedPercent:null;
   if(options.availableOnly&&!available)return [];
   if((min!==null||max!==null||options.direction&&options.direction!=='all')&&!available)return [];
   if(min!==null&&p<min||max!==null&&p>max||options.direction==='positive'&&p<=0||options.direction==='negative'&&p>=0)return [];
@@ -116,14 +108,14 @@ function morningPredictionRecords(records){
 
 // Only saved forecasts are displayed here; historical prices are never treated as forecasts.
 export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date()){
- const targetDate=nextForecastSession(now),saved=forecasts.get(symbol),forecast=afterOpen(saved)?undefined:saved;
+ const targetDate=nextForecastSession(now),saved=forecasts.get(symbol),forecast=afterOpenForecast(saved)?undefined:saved;
  const next=forecast?.targetDate===targetDate&&usableForecast(forecast,now)?forecast:null;
  const today=easternSessionClock(now).date;
- const todaySaved=(ledger?.records||[]).filter(row=>row.symbol===symbol&&row.targetDate===today&&!afterOpen(row)&&row.returnBasis==='open-to-close'&&row.lookback===365&&Number.isFinite(row.estimatedPercent)).sort((a,b)=>String(b.generatedAt||'').localeCompare(String(a.generatedAt||'')))[0];
+ const todaySaved=(ledger?.records||[]).filter(row=>row.symbol===symbol&&row.targetDate===today&&!afterOpenForecast(row)&&row.returnBasis==='open-to-close'&&row.lookback===365&&Number.isFinite(row.estimatedPercent)).sort((a,b)=>String(b.generatedAt||'').localeCompare(String(a.generatedAt||'')))[0];
  const current=savedForecast(forecast)&&forecast.targetDate===today?forecast:todaySaved?{...todaySaved,state:'estimated',forecastModel:todaySaved.forecastModel||'supervised'}:null;
  const records=[],seen=new Set();
  const add=row=>{
-  if(!row.date||row.date>=targetDate||row.afterOpen||afterOpen(row,row.date)||!Number.isFinite(row.percent)&&!row.reason)return;
+  if(!row.date||row.date>=targetDate||row.afterOpen||afterOpenForecast(row,row.date)||!Number.isFinite(row.percent)&&!row.reason)return;
   const key=[row.date,row.generatedAt,row.modelVersion,row.percent,row.afterOpen].join('|');if(seen.has(key))return;seen.add(key);
   const actual=Number.isFinite(row.actual)?row.actual:null;
   const compared=actual!==null&&Number.isFinite(row.percent);

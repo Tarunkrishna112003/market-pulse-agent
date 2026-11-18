@@ -76,31 +76,8 @@ jobs:
           node --check public-site/app.js
       - name: Refresh general Yahoo news while preserving stock report
         run: node scripts/refresh-news.mjs public-site/data.json
-      - name: Decide whether forecasting code needs retraining
-        id: forecast_changes
-        env:
-          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          git diff --name-only HEAD^ HEAD > /tmp/forecast-changed-files.txt
-          refresh="$FORCE_REFRESH"
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-          while IFS= read -r changed_file; do
-            case "$changed_file" in
-              scripts/ml-prediction.py|scripts/forecast_models.py|scripts/forecast_benchmark.py|scripts/forecast_runtime.py|scripts/forecast_features.py|scripts/forecast_research.py|scripts/stock_specific.py|scripts/stock_specific_runtime.py|scripts/news-sentiment.py|lib/prediction-news.mjs|lib/supervised-data.mjs|lib/stock-specific-data.mjs|lib/trading-calendar.mjs|data/prediction-model.json|.github/actions/prediction-agent/*) refresh=true ;;
-            esac
-          done < /tmp/forecast-changed-files.txt
-          fi
-          echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
-      - name: Preserve saved forecasts for display-only updates
-        if: steps.forecast_changes.outputs.refresh == 'false'
-        run: |
-          for file in predictions.json prediction-history.json; do
-            curl --fail --retry 3 --silent --show-error "https://tarunkrishna112003.github.io/market-pulse-agent/$file?deploy=${GITHUB_RUN_ID}" --output "public-site/$file"
-          done
-          node --input-type=module -e "import {readFile,writeFile,mkdir} from 'node:fs/promises'; const p=JSON.parse(await readFile('public-site/predictions.json','utf8')); const windows=p.tableFiles||[]; await mkdir('public-site/predictions',{recursive:true}); let index=0; await Promise.all(Array.from({length:4},async()=>{while(index<windows.length){const days=windows[index++];if(!Number.isInteger(days)||days<1||days>365)throw Error('Invalid forecast history');const r=await fetch('https://tarunkrishna112003.github.io/market-pulse-agent/predictions/'+days+'.json?deploy='+process.env.GITHUB_RUN_ID);if(!r.ok)throw Error('Cannot restore '+days+'-day forecasts');await writeFile('public-site/predictions/'+days+'.json',await r.text());}}));"
-      - name: Train and compare next-session prediction models
-        if: steps.forecast_changes.outputs.refresh == 'true'
-        uses: ./.github/actions/prediction-agent
+      - name: Restore eligible saved forecasts
+        run: node scripts/restore-preopen-forecasts.mjs
       - name: Preserve every stock's published forecast in history
         run: node scripts/archive-published-forecasts.mjs public-site
       - name: Prepare or preserve daily closing report

@@ -79,6 +79,8 @@ GitHub Pages serves the separate static dashboard from `github-pages/`. The work
 
 Visitors can change market-cap and movement filters, and shorten the calendar window within the published history. Filters calculate results from the latest snapshot; they do not initiate a new scan. Repository writers can use the dashboard link to run the GitHub workflow manually with custom filters and a 1–365 day window. Public scheduled runs use the default 30-day, $20B–$100B, 0%–5% average movement conditions. Numeric reports are published without local Ollama research. GitHub-hosted market feeds may impose rate limits; failures and partial coverage are shown. If no valid histories return, the previous deployment is preserved.
 
+General Predictions updates after the scheduled 5 AM Pacific scan on trading days, provided the predictions finish before 6:30 AM Pacific. The model uses the prior session’s post-market and the current session’s pre-market observations through 5 AM Pacific when available. Later scans refresh market data and keep the same forecast values.
+
 ## Price range and company news
 
 Both dashboards show current price, 30-day trading low and 30-day trading high. The range always covers 30 calendar days ending on the scan date, independent of movement filters; histories fetch at least this window. Missing daily high/low data is shown as unavailable rather than replaced with closing prices. Yahoo prices use the latest available regular-market quote and timestamp; FMP histories use the latest closing price and date. Prices are scan snapshots, not streaming quotes. CSV exports include price, timestamp, exchange and range columns, replacing the count of large-movement sessions.

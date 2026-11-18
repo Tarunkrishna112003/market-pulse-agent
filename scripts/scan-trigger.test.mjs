@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scanTriggerDecision,triggerDueScan,afterCloseWindow,needsClosingRefresh} from '../lib/github-scan-trigger.mjs';
+import {morningForecastDate,scanTriggerDecision,triggerDueScan,afterCloseWindow,needsClosingRefresh} from '../lib/github-scan-trigger.mjs';
 const completed='2026-10-08T19:10:19Z';
-const success={status:'completed',conclusion:'success',updated_at:completed};
+const success={status:'completed',conclusion:'success',display_title:'Scan 2026-10-08T12:00:00.000Z',updated_at:completed};
 const threeHours=3*60*60*1000;
 test('trigger follows fixed Pacific slots rather than completion intervals',()=>{
  const due=Date.parse('2026-10-08T20:00:00Z');
@@ -30,7 +30,7 @@ test('no history triggers initial scan and malformed timestamps fail explicitly'
 test('due check dispatches the real scanner with public filters',async()=>{
  const calls=[];
  const result=await triggerDueScan({repository:'owner/repo',token:'fixture',now:Date.parse(completed)+threeHours,fetchImpl:async(url,options)=>{calls.push({url,options});return calls.length===1?{ok:true,json:async()=>({workflow_runs:[success]})}:{ok:true,status:204}}});
- assert.equal(result.triggered,true);assert.equal(calls.length,2);assert.match(calls[1].url,/scan-and-publish.yml\/dispatches$/);assert.equal(calls[1].options.method,'POST');assert.deepEqual(JSON.parse(calls[1].options.body),{ref:'main',inputs:{lookback_days:'365',min_cap_b:'20',max_cap_b:'200',min_move:'0',max_move:'5'}});
+ assert.equal(result.triggered,true);assert.equal(calls.length,2);assert.match(calls[1].url,/scan-and-publish.yml\/dispatches$/);assert.equal(calls[1].options.method,'POST');assert.deepEqual(JSON.parse(calls[1].options.body),{ref:'main',inputs:{lookback_days:'365',min_cap_b:'20',max_cap_b:'200',min_move:'0',max_move:'5',scheduled_at:'2026-10-08T20:00:00.000Z'}});
 });
 test('not-due check never dispatches and API errors do not start blind scans',async()=>{
  let calls=0;
@@ -66,4 +66,13 @@ test('stale closing forecasts trigger a guarded retry without exposing GitHub cr
  let requests=0;
  const active=await triggerDueScan({repository:'owner/repo',token:'fixture',now,checkAfterClose:true,fetchImpl:async()=>{requests++;return {ok:true,json:async()=>({workflow_runs:[{status:'in_progress'}]})}}});
  assert.equal(active.triggered,undefined);assert.equal(requests,1);
+});
+
+test('the 5 AM Pacific trading scan qualifies only before the market opens',()=>{
+ for(const slot of ['2026-10-08T12:00:00.000Z','2026-11-18T13:00:00.000Z']){
+  const time=Date.parse(slot);
+  assert.equal(morningForecastDate(slot,time+60000),slot.slice(0,10));
+  assert.equal(morningForecastDate(slot,time+90*60000),'');
+  assert.equal(morningForecastDate('',time),'');
+ }
 });

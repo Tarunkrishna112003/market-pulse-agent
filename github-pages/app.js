@@ -197,8 +197,8 @@ try{
  if(!Array.isArray(state.data.stocks)||!state.data.report?.end)throw Error('The market snapshot is incomplete. Refresh the preview snapshots.');
  state.stockMap=new Map(state.data.stocks.map(s=>[s.symbol,s]));const warnings=[];
  if(results[1].status==='fulfilled')state.metadata=results[1].value;else warnings.push('Model metadata could not be loaded.');
- if(state.metadata?.reportId!==state.data.report.id){warnings.push('Forecasts belong to a different scan and are withheld.');}
- else if(results[2].status==='fulfilled'&&results[2].value.reportId===state.data.report.id){state.forecasts=new Map(results[2].value.rows.map(f=>[f.symbol,f]));}
+ if(!state.metadata?.reportId){warnings.push('Saved forecasts are unavailable.');}
+ else if(results[2].status==='fulfilled'&&results[2].value.reportId===state.metadata.reportId){state.forecasts=new Map(results[2].value.rows.map(f=>[f.symbol,f]));}
  else{for(const row of state.metadata.rows||[]){const forecast=row.forecasts?.find(f=>f.lookback===365);if(forecast)state.forecasts.set(row.symbol,forecast)}warnings.push('The full-universe forecast table is unavailable; only saved detailed rows can be shown.');}
  if(results[3].status==='fulfilled'){state.testing={...results[3].value,stocks:results[3].value.stocks.map(stock=>({...stock,exchange:state.stockMap.get(stock.symbol)?.exchange||stock.exchange}))};const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());$('testDay').value=state.testing.dates.filter(d=>d<=today).at(-1)||state.testing.dates[0];renderTestCalendar();}else warnings.push('Testing results could not be loaded.');
  if(results[4].status==='fulfilled'&&Array.isArray(results[4].value.records))state.ledger=results[4].value;else warnings.push('Saved prediction history could not be loaded.');

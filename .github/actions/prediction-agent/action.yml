@@ -37,6 +37,7 @@ runs:
         python -m unittest discover -s scripts -p 'forecast_runtime_test.py'
         python -m unittest discover -s scripts -p 'stock_specific_test.py'
         python -m unittest discover -s scripts -p 'stock_specific_runtime_test.py'
+        python -m unittest discover -s scripts -p 'extended_hours_test.py'
         python scripts/stock_specific_runtime.py public-site/prediction-training.json public-site/prediction-sentiment.json public-site/prediction-trained.json
     - name: Save fitted models and training diagnostics
       uses: actions/upload-artifact@v4

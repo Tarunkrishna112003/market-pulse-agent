@@ -1,7 +1,11 @@
 name: Scan NASDAQ and NYSE and publish dashboard
+run-name: Scan ${{ inputs.scheduled_at || 'manual' }}
 on:
   workflow_dispatch:
     inputs:
+      scheduled_at:
+        description: Scheduled Pacific scan slot timestamp
+        default: ''
       lookback_days:
         description: Calendar days to fetch (1–365)
         default: '365'
@@ -59,8 +63,19 @@ jobs:
           MAX_CAP_B: ${{ inputs.max_cap_b || '200' }}
           MIN_MOVE: ${{ inputs.min_move || '0' }}
           MAX_MOVE: ${{ github.event_name == 'schedule' && '5' || inputs.max_move }}
-      - name: Analyse top 25 prices and company news
+      - name: Check the pre-open forecast window
+        id: forecast_window
+        env:
+          SCHEDULED_AT: ${{ inputs.scheduled_at }}
+        run: node scripts/prediction-agent.mjs --forecast-window
+      - name: Generate pre-open forecasts
+        if: steps.forecast_window.outputs.date != ''
         uses: ./.github/actions/prediction-agent
+        env:
+          FORECAST_DATE: ${{ steps.forecast_window.outputs.date }}
+      - name: Restore eligible saved forecasts
+        if: hashFiles('public-site/predictions.json') == ''
+        run: node scripts/restore-preopen-forecasts.mjs
       - name: Prepare daily top-25 closing report
         run: node scripts/daily-report.mjs
       - name: Update next-week testing results

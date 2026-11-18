@@ -4,13 +4,13 @@ import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {MODEL_VERSION} from '../lib/prediction.mjs';
+import {EXTENDED_MODEL_VERSION as MODEL_VERSION} from '../lib/prediction.mjs';
 import {publishedForecastRows} from '../lib/published-forecasts.mjs';
 
 test('finalize archives non-top-25 full-table forecasts and recovery keeps original values and timestamps',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'full-forecast-archive-'));
  try{
-  const generatedAt='2026-11-03T17:00:00Z',reportId='all-stocks';
+  const generatedAt='2026-11-03T13:30:00Z',reportId='all-stocks';
   const stocks=['TOP','SMALL','LARGE','MISSING'].map(symbol=>({symbol,name:symbol}));
   const forecasts=stocks.map((s,i)=>({symbol:s.symbol,state:'estimated',forecastModel:'supervised',returnBasis:'open-to-close',modelVersion:MODEL_VERSION,lookback:365,targetDate:'2026-11-03',generatedAt,estimatedPercent:i-1}));
   forecasts[3]={symbol:'MISSING',state:'no-signal',lookback:365,targetDate:'2026-11-03',reason:'Historical prices unavailable'};
@@ -23,8 +23,8 @@ test('finalize archives non-top-25 full-table forecasts and recovery keeps origi
    'predictions/365.json':{reportId,lookback:365,rows:forecasts},
    'mock.mjs':null};
   for(const [name,value] of Object.entries(files))if(value)await writeFile(join(directory,name),JSON.stringify(value));
-  await writeFile(join(directory,'mock.mjs'),`globalThis.fetch=async()=>({ok:true,json:async()=>({records:[]})});`);
-  const run=spawnSync(process.execPath,['--import',join(directory,'mock.mjs'),resolve('scripts/prediction-agent.mjs'),'--finalize',directory],{encoding:'utf8',timeout:10000});
+  await writeFile(join(directory,'mock.mjs'),`globalThis.fetch=async()=>({ok:true,json:async()=>({records:[]})}); const RealDate=Date; globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:['2026-11-03T14:00:00Z']))}};`);
+  const run=spawnSync(process.execPath,['--import',join(directory,'mock.mjs'),resolve('scripts/prediction-agent.mjs'),'--finalize',directory],{encoding:'utf8',timeout:10000,env:{...process.env,FORECAST_DATE:'2026-11-03'}});
   assert.equal(run.status,0,run.stderr);
   let history=JSON.parse(await readFile(join(directory,'prediction-history.json'),'utf8'));
   assert.deepEqual(history.records.map(r=>r.symbol).sort(),['LARGE','MISSING','SMALL','TOP']);
