@@ -11,7 +11,7 @@ test('trigger follows fixed Pacific slots rather than completion intervals',()=>
  assert.equal(scanTriggerDecision([success],due-1).nextScanAt,'2026-10-08T20:00:00.000Z');
  const overlapping={...success,created_at:'2026-10-08T19:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
  assert.equal(scanTriggerDecision([overlapping],Date.parse('2026-10-08T20:31:00Z')).due,true);
- const onTime={...success,created_at:'2026-10-08T20:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
+ const onTime={...success,display_title:'Scan 2026-10-08T20:00:00.000Z',created_at:'2026-10-08T20:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
  assert.equal(scanTriggerDecision([onTime],Date.parse('2026-10-08T20:31:00Z')).due,false);
 });
 test('running, pending and queued scans prevent duplicate dispatch',()=>{
@@ -76,4 +76,16 @@ test('the 5 AM Pacific trading scan starts November 19 and qualifies only before
   assert.equal(morningForecastDate(slot,time+90*60000),'');
   assert.equal(morningForecastDate('',time),'');
  }
+});
+
+test('the missed morning slot is retried before open and caught up without replacing the afternoon slot',()=>{
+ const slot='2026-11-19T13:00:00.000Z';
+ const failed={display_title:'Scan '+slot,status:'completed',conclusion:'failure',created_at:slot,updated_at:'2026-11-19T13:10:00Z'};
+ assert.equal(scanTriggerDecision([failed],Date.parse('2026-11-19T13:14:59Z')).due,false);
+ assert.equal(scanTriggerDecision([failed],Date.parse('2026-11-19T13:15:00Z')).scheduledAt,slot);
+ const afternoon=Date.parse('2026-11-19T21:15:00Z');
+ assert.equal(scanTriggerDecision([],afternoon).scheduledAt,slot);
+ assert.equal(morningForecastDate(slot,afternoon),'');
+ const caughtUp={...failed,conclusion:'success',created_at:'2026-11-19T21:03:00Z',updated_at:'2026-11-19T21:14:00Z'};
+ assert.equal(scanTriggerDecision([caughtUp],afternoon).scheduledAt,'2026-11-19T21:00:00.000Z');
 });
