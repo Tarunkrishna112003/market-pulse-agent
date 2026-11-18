@@ -2,7 +2,7 @@ import {appendFile,readFile,writeFile} from 'node:fs/promises';
 import {gatherPredictionNews} from '../lib/prediction-news.mjs';
 import {updateLedger,validationSummary,EXTENDED_MODEL_VERSION} from '../lib/prediction.mjs';
 import {trainingPrices,gatherTrainingData} from '../lib/supervised-data.mjs';
-import {afterOpenForecast,preopenTradingDate,easternSessionClock,nextForecastSession,tradingDay,previousTradingDay} from '../lib/trading-calendar.mjs';
+import {afterOpenForecast,excludedAfterOpenForecast,preopenTradingDate,easternSessionClock,nextForecastSession,tradingDay,previousTradingDay} from '../lib/trading-calendar.mjs';
 import {collectStockSpecificData} from '../lib/stock-specific-data.mjs';
 import {morningForecastDate} from '../lib/github-scan-trigger.mjs';
 import {publishedForecastRows} from '../lib/published-forecasts.mjs';
@@ -40,7 +40,7 @@ if(mode==='--prepare'){
  let news;try{news=JSON.parse(await readFile(site+'/prediction-sentiment.json','utf8'))}catch{news=JSON.parse(await readFile(site+'/prediction-news.json','utf8'));news.modelState='unavailable'}
  if(news.reportId!==data.report.id)throw Error('Prediction news belongs to a different report');
  let previous=[];const r=await fetch('https://tarunkrishna112003.github.io/market-pulse-agent/prediction-history.json',{signal:AbortSignal.timeout(20000),cache:'no-store'});
- if(r.ok){const saved=await r.json();if(!Array.isArray(saved.records))throw Error('Invalid saved prediction history');previous=saved.records.filter(row=>!afterOpenForecast(row))}else if(r.status!==404)throw Error('Cannot restore prediction history (HTTP '+r.status+')');
+ if(r.ok){const saved=await r.json();if(!Array.isArray(saved.records))throw Error('Invalid saved prediction history');previous=saved.records.filter(row=>!excludedAfterOpenForecast(row))}else if(r.status!==404)throw Error('Cannot restore prediction history (HTTP '+r.status+')');
  const trained=JSON.parse(await readFile(site+'/prediction-trained.json','utf8'));if(trained.modelVersion!==EXTENDED_MODEL_VERSION)throw Error('Trained model version differs from active selection');const trainedRows=new Map(trained.rows.map(r=>[r.symbol,r]));const rows=[...trained.rows,...stocks.filter(s=>!trainedRows.has(s.symbol)).map(s=>trainedRows.get(s.symbol)||{symbol:s.symbol,name:s.name,headlines:news.companies.find(c=>c.symbol===s.symbol)?.headlines||[],newsState:'unavailable',forecasts:[365].map(lookback=>({state:'no-signal',lookback,reason:'Historical training prices could not be retrieved'}))})];
  for(const row of rows)for(const f of row.forecasts||[])if(f.modelKey)f.modelQuality=trained.trainedModels.find(m=>m.adaptive);
  const training=JSON.parse(await readFile(site+'/prediction-training.json','utf8'));const evaluated=new Map(training.companies.map(c=>[c.symbol,{symbol:c.symbol,days:c.daily}]));

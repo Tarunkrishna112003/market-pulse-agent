@@ -68,8 +68,9 @@ test('stale closing forecasts trigger a guarded retry without exposing GitHub cr
  assert.equal(active.triggered,undefined);assert.equal(requests,1);
 });
 
-test('the 5 AM Pacific trading scan qualifies only before the market opens',()=>{
- for(const slot of ['2026-10-08T12:00:00.000Z','2026-11-18T13:00:00.000Z']){
+test('the 5 AM Pacific trading scan starts November 19 and qualifies only before the market opens',()=>{
+ assert.equal(morningForecastDate('2026-11-18T13:00:00.000Z',Date.parse('2026-11-18T13:05:00Z')),'');
+ for(const slot of ['2026-11-19T13:00:00.000Z','2027-03-15T12:00:00.000Z']){
   const time=Date.parse(slot);
   assert.equal(morningForecastDate(slot,time+60000),slot.slice(0,10));
   assert.equal(morningForecastDate(slot,time+90*60000),'');

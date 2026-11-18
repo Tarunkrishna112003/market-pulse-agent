@@ -41,7 +41,13 @@ on:
       - 'scripts/refresh-news.mjs'
       - '.github/workflows/publish-dashboard.yml'
   workflow_dispatch:
+    inputs:
+      restore_november_18:
+        description: Restore pre-rollout forecast data from the November 18 deployment
+        type: boolean
+        default: false
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -76,13 +82,32 @@ jobs:
           node --check public-site/app.js
       - name: Refresh general Yahoo news while preserving stock report
         run: node scripts/refresh-news.mjs public-site/data.json
+      - name: Download November 18 forecast backup
+        if: inputs.restore_november_18
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          run-id: '44399435428'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/november-18-artifact
+      - name: Restore November 18 forecast data
+        if: inputs.restore_november_18
+        run: |
+          backup="$RUNNER_TEMP/november-18-backup"
+          mkdir -p "$backup" public-site/predictions
+          tar -xf "$RUNNER_TEMP/november-18-artifact/artifact.tar" -C "$backup"
+          cp "$backup/predictions.json" "$backup/prediction-history.json" "$backup/testing-results.json" public-site/
+          cp "$backup/predictions/365.json" public-site/predictions/
       - name: Restore eligible saved forecasts
+        if: '!inputs.restore_november_18'
         run: node scripts/restore-preopen-forecasts.mjs
       - name: Preserve every stock's published forecast in history
+        if: '!inputs.restore_november_18'
         run: node scripts/archive-published-forecasts.mjs public-site
       - name: Prepare or preserve daily closing report
         run: node scripts/daily-report.mjs
       - name: Update next-week testing results
+        if: '!inputs.restore_november_18'
         run: node scripts/testing-results.mjs
       - name: Archive daily prediction report
         uses: actions/upload-artifact@v4

@@ -1,6 +1,6 @@
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {updateLedger,validationSummary} from '../lib/prediction.mjs';
-import {afterOpenForecast} from '../lib/trading-calendar.mjs';
+import {excludedAfterOpenForecast} from '../lib/trading-calendar.mjs';
 
 const site=process.argv[2]||'public-site';
 const base='https://tarunkrishna112003.github.io/market-pulse-agent/';
@@ -11,7 +11,7 @@ async function published(file){
 }
 
 const [metadata,history]=await Promise.all([published('predictions.json'),published('prediction-history.json')]);
-const eligible=row=>!afterOpenForecast(row);
+const eligible=row=>!excludedAfterOpenForecast(row);
 const tables=await Promise.all((metadata.tableFiles||[365]).map(async days=>{
  if(!Number.isInteger(days)||days<1||days>365)throw Error('Invalid forecast lookback');
  const table=await published('predictions/'+days+'.json');

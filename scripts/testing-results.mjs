@@ -1,7 +1,7 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {useFrozenOctober20} from '../lib/frozen-forecast-migration.mjs';
 import {createTest,extendTest,restoreSavedPredictions,updateTest} from '../lib/testing-results.mjs';
-import {sessionExpired} from '../lib/trading-calendar.mjs';
+import {PREOPEN_FORECAST_START,sessionExpired} from '../lib/trading-calendar.mjs';
 import {trainingPrices} from '../lib/supervised-data.mjs';
 import {EXTENDED_MODEL_VERSION,MODEL_SELECTION} from '../lib/prediction.mjs';
 const site=process.argv[2]||'public-site',base='https://tarunkrishna112003.github.io/market-pulse-agent/';
@@ -20,6 +20,6 @@ const recovered=restoreSavedPredictions(state,history,now,MODEL_SELECTION);
 const migrated=useFrozenOctober20(recovered,await readFile(new URL('../data/frozen-forecasts/2026-10-20.json',import.meta.url),'utf8'),now);
 const selection=metadata.modelVersion===EXTENDED_MODEL_VERSION?{...MODEL_SELECTION,version:EXTENDED_MODEL_VERSION}:MODEL_SELECTION;
 const result=updateTest(migrated,{...forecasts,generatedAt:metadata.generatedAt,modelVersion:metadata.modelVersion},prices,now,selection);result.priceErrors=errors;
-for(const entry of result.entries)delete entry.lateForecasts;
+for(const entry of result.entries)if(entry.date>=PREOPEN_FORECAST_START)delete entry.lateForecasts;
 await writeFile(site+'/testing-results.json',JSON.stringify(result));
 console.log(`Testing ${state.dates.join(', ')}: ${result.entries.filter(e=>e.prediction).length} frozen forecasts; ${result.entries.filter(e=>e.status==='compared').length} comparisons.`);
