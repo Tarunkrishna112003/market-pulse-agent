@@ -1,8 +1,8 @@
-import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-accuracy-2';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-accuracy-3';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
-const state={data:null,metadata:null,forecasts:new Map(),testing:null,ledger:null,volatility:[],predictions:[],explore:[],volShown:25,predShown:25,exploreShown:25,mode:'all',historyShown:60,watchlist:new Set(),testView:null,detailTabs:new Map()};
+const state={data:null,metadata:null,forecasts:new Map(),testing:null,ledger:null,getStockPrediction:null,volatility:[],predictions:[],explore:[],volShown:25,predShown:25,exploreShown:25,mode:'all',historyShown:60,watchlist:new Set(),testView:null,detailTabs:new Map()};
 try{state.watchlist=new Set(JSON.parse(localStorage.getItem('market-pulse-watchlist')||'[]'))}catch{}
 const labels={volatility:['Volatility report','Find the movement that fits your range.'],predictions:['Stock predictions','A separate view of the model’s forecasts, on your terms.'],explore:['Explore stocks','A familiar name. A new discovery. A year of perspective.'],testing:['Testing results','The predictions we saved, measured against what happened.']};
 const fmt={money:n=>Number.isFinite(n)?n.toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}):'—',pct:n=>Number.isFinite(n)?`${n>=0?'+':''}${n.toFixed(2)}%`:'—',cap:n=>Number.isFinite(n)?n>=1e12?'$'+(n/1e12).toFixed(2)+'T':'$'+(n/1e9).toFixed(2)+'B':'—',number:n=>Number.isFinite(n)?n.toLocaleString('en-US'):'—'};
@@ -55,9 +55,12 @@ function renderPredictions(){
   const tr=el('tr'),f=stock.forecast,pred=cell();
   if(stock.available)pred.append(el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
-  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
+  const {percent,correct,compared}=state.getStockPrediction(stock.symbol).accuracy,accuracy=cell();
+  if(compared)append(accuracy,el('strong',percent.toFixed(1)+'%'),el('small',`${fmt.number(correct)} of ${fmt.number(compared)} correct`));
+  else{accuracy.textContent='—';accuracy.title='No scored pre-open forecasts';}
+  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,accuracy,cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }
- if(!rows.length)emptyRow(target,5,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
+ if(!rows.length)emptyRow(target,6,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
  const session=$('predictionSession');session.textContent=predictionSessionLabel(rows,state.metadata?.generatedAt);session.hidden=!session.textContent;
  $('predictionCount').textContent=fmt.number(rows.length);
  $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;renderStats('predictions');
@@ -74,7 +77,7 @@ function renderSectionSearch(section){
  }
 }
 function renderStockForecasts(stock,target){
- const view=stockPredictionView(stock.symbol,state.forecasts,state.testing,state.ledger),box=el('section',null,'surface stock-forecast-section');box.setAttribute('aria-label','Stock predictions');
+ const view=state.getStockPrediction(stock.symbol),box=el('section',null,'surface stock-forecast-section');box.setAttribute('aria-label','Stock predictions');
  append(box,append(el('div',null,'surface-heading'),append(el('div'),append(el('h2','Predictions for '+stock.symbol,'ticker-line'),exchangeBadge(stock)),el('p','Saved model forecasts · full-session open-to-close changes'))));
  const cards=el('div',null,'stock-forecast-cards'),next=el('div',null,'stock-forecast-card');
  append(next,el('span','Next trading session · '+view.targetDate,'summary-label'),el('strong',view.next?fmt.pct(view.next.estimatedPercent):'Not available',view.next?(view.next.estimatedPercent>=0?'positive':'negative'):''));
@@ -208,6 +211,7 @@ try{
  else{for(const row of state.metadata.rows||[]){const forecast=row.forecasts?.find(f=>f.lookback===365);if(forecast)state.forecasts.set(row.symbol,forecast)}warnings.push('The full-universe forecast table is unavailable; only saved detailed rows can be shown.');}
  if(results[3].status==='fulfilled'){state.testing={...results[3].value,stocks:results[3].value.stocks.map(stock=>({...stock,exchange:state.stockMap.get(stock.symbol)?.exchange||stock.exchange}))};const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());$('testDay').value=state.testing.dates.filter(d=>d<=today).at(-1)||state.testing.dates[0];renderTestCalendar();}else warnings.push('Testing results could not be loaded.');
  if(results[4].status==='fulfilled'&&Array.isArray(results[4].value.records))state.ledger=results[4].value;else warnings.push('Saved prediction history could not be loaded.');
+ state.getStockPrediction=createStockPredictionLookup(state.forecasts,state.testing,state.ledger);
  const report=state.data.report;for(const id of ['volatilityFilters','predictionFilters']){$(id).elements.namedItem('days').max=report.filters.lookbackDays;$(id).elements.namedItem('days').value=Math.min(30,report.filters.lookbackDays);}
  const legacyFilters=new URLSearchParams(location.search);for(const key of ['minCap','maxCap','minMove','maxMove','days'])if(legacyFilters.has(key))$('volatilityFilters').elements.namedItem(key).value=legacyFilters.get(key);
  $('snapshotTime').textContent=time(report.createdAt);$('footerAsOf').textContent='Snapshot through '+report.end+' · Forecasts are model estimates.';

@@ -160,3 +160,16 @@ export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date
  const accuracy={correct,compared:scored.length,percent:scored.length?100*correct/scored.length:null};
  return {targetDate,next,current,currentClosed:current?sessionExpired(current.targetDate,now):false,latestAttempt:forecast&&!savedForecast(forecast)?forecast:null,records:history,accuracy};
 }
+
+export function createStockPredictionLookup(forecasts,testing,ledger){
+ const bySymbol=rows=>{
+  const grouped=new Map();
+  for(const row of rows||[]){
+   if(!grouped.has(row.symbol))grouped.set(row.symbol,[]);
+   grouped.get(row.symbol).push(row);
+  }
+  return grouped;
+ };
+ const tests=bySymbol(testing?.entries),history=bySymbol(ledger?.records);
+ return (symbol,now=new Date())=>stockPredictionView(symbol,forecasts,{entries:tests.get(symbol)},{records:history.get(symbol)},now);
+}

@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
 for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['github-pages/exchange.mjs','exchange.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
-const {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+const {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,createStockPredictionLookup,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
 after(()=>rm(dir,{recursive:true,force:true}));
 const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
 const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
@@ -182,4 +182,13 @@ test('direction accuracy covers the full pre-open archive and excludes missing f
  assert.deepEqual(stockPredictionView('APP',new Map(),testing,ledger,now).accuracy,{correct:2,compared:3,percent:100*2/3});
  assert.deepEqual(stockPredictionView('AAPL',new Map(),testing,ledger,now).accuracy,{correct:1,compared:1,percent:100});
  assert.deepEqual(stockPredictionView('MSFT',new Map(),testing,ledger,now).accuracy,{correct:0,compared:0,percent:null});
+ const lookup=createStockPredictionLookup(new Map(),testing,ledger);
+ for(const symbol of ['APP','AAPL','MSFT']){
+  assert.deepEqual(lookup(symbol,now),stockPredictionView(symbol,new Map(),testing,ledger,now));
+ }
+});
+
+test('directional accuracy is immediately beside the prediction column',async()=>{
+ const html=await readFile('github-pages/index.html','utf8');
+ assert.match(html,/<th>Predicted open → close<\/th><th>Directional accuracy<\/th>/);
 });
