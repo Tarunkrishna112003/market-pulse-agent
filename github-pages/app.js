@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-accuracy-1';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-accuracy-2';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
@@ -82,7 +82,8 @@ function renderStockForecasts(stock,target){
  if(view.next)next.append(el('small',view.next.modelVersion||state.metadata?.modelVersion||''));cards.append(next);
  const {correct,compared,percent}=view.accuracy,accuracy=el('div',null,'stock-forecast-card stock-direction-accuracy');
  append(accuracy,el('span','Directional accuracy','summary-label'),el('strong',percent===null?'—':percent.toFixed(1)+'%'),
-  el('p',compared?`${fmt.number(correct)} of ${fmt.number(compared)} saved pre-open forecasts got the direction right.`:'No saved pre-open forecasts with a recorded outcome.'));
+  el('p',compared?`${fmt.number(correct)} of ${fmt.number(compared)} scored pre-open forecasts got the direction right.`:'No saved pre-open forecasts with a recorded outcome.'));
+ accuracy.append(el('small','Full saved history · one forecast per session'));
  cards.append(accuracy);
  if(view.latestAttempt){const missing=el('div',null,'stock-forecast-card');append(missing,el('span','Latest forecast attempt · '+(view.latestAttempt.targetDate||'Session unavailable'),'summary-label'),el('strong','Unavailable'),el('p',view.latestAttempt.reason||'No usable forecast was generated for this stock.'));cards.append(missing)}
  if(view.current){const current=el('div',null,'stock-forecast-card');append(current,el('span',(view.currentClosed?'Today’s completed session · ':'Current session · ')+view.current.targetDate,'summary-label'),el('strong',fmt.pct(view.current.estimatedPercent),view.current.estimatedPercent>=0?'positive':'negative'),el('p','Generated '+time(view.current.generatedAt||state.metadata?.generatedAt)+(view.current.generatedAfterOpen?' · After-open update':'')));cards.append(current)}

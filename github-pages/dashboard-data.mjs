@@ -108,23 +108,29 @@ export function csvText(headers,rows){
 
 // Keep the first morning prediction for each session, before the next scheduled scan.
 const predictionClock=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'});
-function morningPredictionRecords(records){
+function firstForecastPerSession(records,eligible){
  const daily=new Map();
  const actualByDate=new Map();
  for(const row of records){
   if(row.actual!==null&&!actualByDate.has(row.date))actualByDate.set(row.date,row.actual);
-  if(!Number.isFinite(row.percent)||!Number.isFinite(Date.parse(row.generatedAt)))continue;
-  const parts=Object.fromEntries(predictionClock.formatToParts(new Date(row.generatedAt)).map(p=>[p.type,p.value]));
-  const date=parts.year+'-'+parts.month+'-'+parts.day,hour=Number(parts.hour);
-  if(date!==row.date||hour<5||hour>=13)continue;
+  if(!Number.isFinite(row.percent)||!Number.isFinite(Date.parse(row.generatedAt))||!eligible(row))continue;
   const saved=daily.get(row.date);
-  if(!saved||Date.parse(row.generatedAt)<Date.parse(saved.generatedAt))daily.set(row.date,{...row,record:'5 AM scan'});
+  if(!saved||Date.parse(row.generatedAt)<Date.parse(saved.generatedAt))daily.set(row.date,row);
  }
  return [...daily.values()].map(row=>{
   const actual=actualByDate.get(row.date);
   if(row.actual!==null||actual===undefined)return row;
   return {...row,actual,error:Math.abs(row.percent-actual),directionCorrect:Math.sign(row.percent)===Math.sign(actual)};
  }).sort((a,b)=>b.date.localeCompare(a.date));
+}
+
+
+function morningPredictionRecords(records){
+ return firstForecastPerSession(records,row=>{
+  const parts=Object.fromEntries(predictionClock.formatToParts(new Date(row.generatedAt)).map(p=>[p.type,p.value]));
+  const date=parts.year+'-'+parts.month+'-'+parts.day,hour=Number(parts.hour);
+  return date===row.date&&hour>=5&&hour<13;
+ }).map(row=>({...row,record:'5 AM scan'}));
 }
 
 // Only saved forecasts are displayed here; historical prices are never treated as forecasts.
@@ -148,7 +154,8 @@ export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date
  for(const row of ledger?.records||[])if(row.symbol===symbol&&row.returnBasis==='open-to-close'&&row.lookback===365)add({date:row.targetDate,percent:row.estimatedPercent,reason:row.reason,actual:row.actualPercent,generatedAt:row.generatedAt,modelVersion:row.modelVersion,afterOpen:row.generatedAfterOpen===true,record:row.reason&&!Number.isFinite(row.estimatedPercent)?'No forecast · '+row.reason:row.generatedAfterOpen?'Published after-open forecast':'Saved forecast'});
  if(savedForecast(forecast))add({date:forecast.targetDate,percent:forecast.estimatedPercent,generatedAt:forecast.generatedAt,modelVersion:forecast.modelVersion,afterOpen:forecast.generatedAfterOpen===true,record:'Saved forecast'});
  const history=morningPredictionRecords(records);
- const scored=history.filter(row=>row.directionCorrect!==null&&!row.afterOpen&&!afterOpenForecast(row,row.date)&&sessionExpired(row.date,now));
+ const eligible=firstForecastPerSession(records,row=>!row.afterOpen&&!afterOpenForecast(row,row.date));
+ const scored=eligible.filter(row=>row.directionCorrect!==null&&sessionExpired(row.date,now));
  const correct=scored.filter(row=>row.directionCorrect).length;
  const accuracy={correct,compared:scored.length,percent:scored.length?100*correct/scored.length:null};
  return {targetDate,next,current,currentClosed:current?sessionExpired(current.targetDate,now):false,latestAttempt:forecast&&!savedForecast(forecast)?forecast:null,records:history,accuracy};
