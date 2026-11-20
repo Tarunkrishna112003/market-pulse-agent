@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
 for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['github-pages/exchange.mjs','exchange.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
-const {parseRanges,movementRows,predictionRows,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+const {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
 after(()=>rm(dir,{recursive:true,force:true}));
 const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
 const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
@@ -148,4 +148,11 @@ test('general predictions retain November 18 records and reject late estimates f
  assert.equal(predictionRows(data,historical,options,now).length,1);
  assert.equal(predictionRows(data,late,options,now).length,0);
  assert.equal(stockPredictionView('APP',late,null,null,now).current,null);
+});
+
+test('the predictions heading shows saved session dates once and omits unavailable rows',()=>{
+ const rows=[{available:true,forecast:{targetDate:'2026-11-19'}},{available:true,forecast:{targetDate:'2026-11-19'}},{available:false,forecast:{targetDate:'2026-11-20'}}];
+ assert.equal(predictionSessionLabel(rows),'Predicted for 19 Nov');
+ assert.equal(predictionSessionLabel([...rows,{available:true,forecast:{targetDate:'2026-11-20'}}]),'Predicted for 19 Nov and 20 Nov');
+ assert.equal(predictionSessionLabel([{available:false}]),'');
 });

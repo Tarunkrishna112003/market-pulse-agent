@@ -42,6 +42,14 @@ export function predictionRows(data,forecasts,options,now=new Date()){
  }).sort((a,b)=>Number(b.available)-Number(a.available)||(Math.abs(b.forecast?.estimatedPercent||0)-Math.abs(a.forecast?.estimatedPercent||0))||a.symbol.localeCompare(b.symbol));
 }
 
+const sessionDateFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
+const sessionDateList=new Intl.ListFormat('en-GB',{type:'conjunction'});
+export function predictionSessionLabel(rows){
+ const dates=[...new Set(rows.filter(row=>row.available).map(row=>row.forecast.targetDate))].sort();
+ const labels=dates.filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date))).map(date=>sessionDateFormat.format(new Date(date)));
+ return labels.length?'Predicted for '+sessionDateList.format(labels):'';
+}
+
 export function searchStocks(stocks,query='',mode='all',watchlist=new Set()){
  const normalize=s=>String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').trim();
  const q=normalize(query),words=q.split(/\s+/).filter(Boolean);

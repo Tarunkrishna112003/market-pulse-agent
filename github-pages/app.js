@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
@@ -55,9 +55,10 @@ function renderPredictions(){
   const tr=el('tr'),f=stock.forecast,pred=cell();
   if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(stock.completed)pred.append(el('span','Completed session · saved forecast','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
-  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(f?.targetDate||'—'),cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
+  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }
- if(!rows.length)emptyRow(target,6,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
+ if(!rows.length)emptyRow(target,5,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
+ const session=$('predictionSession');session.textContent=predictionSessionLabel(rows);session.hidden=!session.textContent;
  $('predictionCount').textContent=fmt.number(rows.length);$('predictionSummary').textContent=`Sorted by absolute forecast move · ${state.metadata?.modelVersion||'Model information unavailable'}`;
  $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;renderStats('predictions');
 }
