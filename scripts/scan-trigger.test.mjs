@@ -5,20 +5,20 @@ const completed='2026-10-08T19:10:19Z';
 const success={status:'completed',conclusion:'success',display_title:'Scan 2026-10-08T12:00:00.000Z',updated_at:completed};
 const threeHours=3*60*60*1000;
 test('trigger follows fixed Pacific slots rather than completion intervals',()=>{
- const due=Date.parse('2026-10-09T00:00:00Z');
+ const due=Date.parse('2026-10-08T20:00:00Z');
  assert.equal(scanTriggerDecision([success],due-1).due,false);
  assert.equal(scanTriggerDecision([success],due).due,true);
- assert.equal(scanTriggerDecision([success],due-1).nextScanAt,'2026-10-09T00:00:00.000Z');
- const overlapping={...success,created_at:'2026-10-08T19:00:00Z',updated_at:'2026-10-09T00:30:00Z'};
- assert.equal(scanTriggerDecision([overlapping],Date.parse('2026-10-09T00:31:00Z')).due,true);
- const onTime={...success,display_title:'Scan 2026-10-09T00:00:00.000Z',created_at:'2026-10-09T00:00:00Z',updated_at:'2026-10-09T00:30:00Z'};
- assert.equal(scanTriggerDecision([onTime],Date.parse('2026-10-09T00:31:00Z')).due,false);
+ assert.equal(scanTriggerDecision([success],due-1).nextScanAt,'2026-10-08T20:00:00.000Z');
+ const overlapping={...success,created_at:'2026-10-08T19:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
+ assert.equal(scanTriggerDecision([overlapping],Date.parse('2026-10-08T20:31:00Z')).due,true);
+ const onTime={...success,display_title:'Scan 2026-10-08T20:00:00.000Z',created_at:'2026-10-08T20:00:00Z',updated_at:'2026-10-08T20:30:00Z'};
+ assert.equal(scanTriggerDecision([onTime],Date.parse('2026-10-08T20:31:00Z')).due,false);
 });
 test('running, pending and queued scans prevent duplicate dispatch',()=>{
  for(const status of ['queued','pending','waiting','requested','in_progress'])assert.equal(scanTriggerDecision([success,{status}],Date.parse(completed)+threeHours*2).due,false);
 });
 test('unsuccessful scans have a 30-minute retry cooldown',()=>{
- const failed={status:'completed',conclusion:'failure',updated_at:'2026-10-09T00:10:00Z'};
+ const failed={status:'completed',conclusion:'failure',updated_at:'2026-10-08T23:00:00Z'};
  assert.equal(scanTriggerDecision([success,failed],Date.parse(failed.updated_at)+29*60000).due,false);
  assert.equal(scanTriggerDecision([success,failed],Date.parse(failed.updated_at)+30*60000).due,true);
 });
@@ -29,8 +29,8 @@ test('no history triggers initial scan and malformed timestamps fail explicitly'
 });
 test('due check dispatches the real scanner with public filters',async()=>{
  const calls=[];
- const result=await triggerDueScan({repository:'owner/repo',token:'fixture',now:Date.parse(completed)+threeHours*2,fetchImpl:async(url,options)=>{calls.push({url,options});return calls.length===1?{ok:true,json:async()=>({workflow_runs:[success]})}:{ok:true,status:204}}});
- assert.equal(result.triggered,true);assert.equal(calls.length,2);assert.match(calls[1].url,/scan-and-publish.yml\/dispatches$/);assert.equal(calls[1].options.method,'POST');assert.deepEqual(JSON.parse(calls[1].options.body),{ref:'main',inputs:{lookback_days:'365',min_cap_b:'20',max_cap_b:'200',min_move:'0',max_move:'5',scheduled_at:'2026-10-09T00:00:00.000Z'}});
+ const result=await triggerDueScan({repository:'owner/repo',token:'fixture',now:Date.parse(completed)+threeHours,fetchImpl:async(url,options)=>{calls.push({url,options});return calls.length===1?{ok:true,json:async()=>({workflow_runs:[success]})}:{ok:true,status:204}}});
+ assert.equal(result.triggered,true);assert.equal(calls.length,2);assert.match(calls[1].url,/scan-and-publish.yml\/dispatches$/);assert.equal(calls[1].options.method,'POST');assert.deepEqual(JSON.parse(calls[1].options.body),{ref:'main',inputs:{lookback_days:'365',min_cap_b:'20',max_cap_b:'200',min_move:'0',max_move:'5',scheduled_at:'2026-10-08T20:00:00.000Z'}});
 });
 test('not-due check never dispatches and API errors do not start blind scans',async()=>{
  let calls=0;
@@ -78,14 +78,14 @@ test('the 5 AM Pacific trading scan starts November 19 and qualifies only before
  }
 });
 
-test('the missed morning slot is retried before open and caught up without replacing the evening slot',()=>{
+test('the missed morning slot is retried before open and caught up without replacing the afternoon slot',()=>{
  const slot='2026-11-19T13:00:00.000Z';
  const failed={display_title:'Scan '+slot,status:'completed',conclusion:'failure',created_at:slot,updated_at:'2026-11-19T13:10:00Z'};
  assert.equal(scanTriggerDecision([failed],Date.parse('2026-11-19T13:14:59Z')).due,false);
  assert.equal(scanTriggerDecision([failed],Date.parse('2026-11-19T13:15:00Z')).scheduledAt,slot);
- const evening=Date.parse('2026-11-20T01:15:00Z');
- assert.equal(scanTriggerDecision([],evening).scheduledAt,slot);
- assert.equal(morningForecastDate(slot,evening),'');
- const caughtUp={...failed,conclusion:'success',created_at:'2026-11-20T01:03:00Z',updated_at:'2026-11-20T01:14:00Z'};
- assert.equal(scanTriggerDecision([caughtUp],evening).scheduledAt,'2026-11-20T01:00:00.000Z');
+ const afternoon=Date.parse('2026-11-19T21:15:00Z');
+ assert.equal(scanTriggerDecision([],afternoon).scheduledAt,slot);
+ assert.equal(morningForecastDate(slot,afternoon),'');
+ const caughtUp={...failed,conclusion:'success',created_at:'2026-11-19T21:03:00Z',updated_at:'2026-11-19T21:14:00Z'};
+ assert.equal(scanTriggerDecision([caughtUp],afternoon).scheduledAt,'2026-11-19T21:00:00.000Z');
 });
