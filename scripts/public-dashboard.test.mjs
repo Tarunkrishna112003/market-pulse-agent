@@ -162,3 +162,21 @@ test('the predictions heading shows the saved generation time in Pacific time',(
  assert.equal(predictionSessionLabel(forecasts,'2026-11-20T13:00:00Z'),'Predicted for 19 Nov at 5:46 AM Pacific');
  assert.equal(predictionSessionLabel([{available:true,forecast:{targetDate:'2026-07-08'}}],'2026-07-08T12:05:00Z'),'Predicted for 8 Jul at 5:05 AM Pacific');
 });
+
+test('direction accuracy counts one pre-open forecast per completed session for each stock',()=>{
+ const row=(symbol,targetDate,generatedAt,estimatedPercent,actualPercent)=>({symbol,targetDate,generatedAt,estimatedPercent,actualPercent,lookback:365,returnBasis:'open-to-close',modelVersion:'v10'});
+ const ledger={records:[
+  row('APP','2026-11-19','2026-11-19T13:40:00Z',1,2),
+  row('APP','2026-11-19','2026-11-19T13:50:00Z',-1,2),
+  row('APP','2026-11-18','2026-11-18T13:50:00Z',1,-1),
+  row('APP','2026-11-17','2026-11-17T15:00:00Z',1,1),
+  row('APP','2026-11-16','2026-11-16T13:44:00Z',1,null),
+  row('APP','2026-11-20','2026-11-20T13:44:00Z',1,1),
+  row('AAPL','2026-11-19','2026-11-19T13:40:00Z',-1,-2),
+ ]};
+ const testing={entries:[{symbol:'APP',date:'2026-11-19',prediction:{percent:1,generatedAt:'2026-11-19T13:40:00Z',modelVersion:'v10'}}]};
+ const now=new Date('2026-11-20T18:00:00Z');
+ assert.deepEqual(stockPredictionView('APP',new Map(),testing,ledger,now).accuracy,{correct:1,compared:2,percent:50});
+ assert.deepEqual(stockPredictionView('AAPL',new Map(),testing,ledger,now).accuracy,{correct:1,compared:1,percent:100});
+ assert.deepEqual(stockPredictionView('MSFT',new Map(),testing,ledger,now).accuracy,{correct:0,compared:0,percent:null});
+});

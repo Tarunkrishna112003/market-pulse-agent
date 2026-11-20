@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=forecast-heading-1';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,stockPredictionView,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-accuracy-1';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
@@ -80,6 +80,10 @@ function renderStockForecasts(stock,target){
  append(next,el('span','Next trading session · '+view.targetDate,'summary-label'),el('strong',view.next?fmt.pct(view.next.estimatedPercent):'Not available',view.next?(view.next.estimatedPercent>=0?'positive':'negative'):''));
  next.append(el('p',view.next?'Generated '+time(view.next.generatedAt||state.metadata?.generatedAt)+' · '+(view.next.generatedAfterOpen?'After-open update':'Before-open forecast'):'Awaiting the next-session forecast refresh. Last model update: '+time(state.metadata?.generatedAt)+'.'));
  if(view.next)next.append(el('small',view.next.modelVersion||state.metadata?.modelVersion||''));cards.append(next);
+ const {correct,compared,percent}=view.accuracy,accuracy=el('div',null,'stock-forecast-card stock-direction-accuracy');
+ append(accuracy,el('span','Directional accuracy','summary-label'),el('strong',percent===null?'—':percent.toFixed(1)+'%'),
+  el('p',compared?`${fmt.number(correct)} of ${fmt.number(compared)} saved pre-open forecasts got the direction right.`:'No saved pre-open forecasts with a recorded outcome.'));
+ cards.append(accuracy);
  if(view.latestAttempt){const missing=el('div',null,'stock-forecast-card');append(missing,el('span','Latest forecast attempt · '+(view.latestAttempt.targetDate||'Session unavailable'),'summary-label'),el('strong','Unavailable'),el('p',view.latestAttempt.reason||'No usable forecast was generated for this stock.'));cards.append(missing)}
  if(view.current){const current=el('div',null,'stock-forecast-card');append(current,el('span',(view.currentClosed?'Today’s completed session · ':'Current session · ')+view.current.targetDate,'summary-label'),el('strong',fmt.pct(view.current.estimatedPercent),view.current.estimatedPercent>=0?'positive':'negative'),el('p','Generated '+time(view.current.generatedAt||state.metadata?.generatedAt)+(view.current.generatedAfterOpen?' · After-open update':'')));cards.append(current)}
  box.append(cards);append(box,append(el('div',null,'surface-heading'),append(el('div'),el('h3','Previous predictions'),el('p','One prediction per trading day from the 5 AM Pacific scan. Later updates are excluded. Error is in percentage points.'))));
