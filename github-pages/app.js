@@ -48,16 +48,16 @@ function renderVolatility(){
  $('volatilityTopCsv').disabled=!rows.length;$('volatilityAllCsv').disabled=!rows.length;renderStats('volatility');
 }
 function renderPredictions(){
- try{state.predictions=predictionRows(state.data,state.forecasts,formValues($('predictionFilters')));$('predictionFilterNote').textContent='Saved forecasts remain visible after the session closes. Each forecast targets the displayed trading day’s full open-to-close change.';}
+ try{state.predictions=predictionRows(state.data,state.forecasts,formValues($('predictionFilters')));$('predictionFilterNote').textContent='Saved forecasts remain visible after the session closes. Each forecast targets the displayed trading day’s full open-to-close change. Latest session change uses the most recent close-to-close return.';}
  catch(error){$('predictionFilterNote').textContent=error.message;return;}
  const rows=state.predictions,target=$('predictionRows');target.replaceChildren();
  for(const stock of rows.slice(0,state.predShown)){
   const tr=el('tr'),f=stock.forecast,pred=cell();
   if(stock.available)pred.append(el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
-  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
+  append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,append(cell(),el('span',fmt.pct(stock.change),'move-pill'+(stock.change<0?' negative':''))),cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }
- if(!rows.length)emptyRow(target,5,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
+ if(!rows.length)emptyRow(target,6,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
  const session=$('predictionSession');session.textContent=predictionSessionLabel(rows,state.metadata?.generatedAt);session.hidden=!session.textContent;
  $('predictionCount').textContent=fmt.number(rows.length);
  $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;renderStats('predictions');
@@ -188,7 +188,7 @@ $('menuButton').addEventListener('click',()=>{const open=!document.body.classLis
 window.addEventListener('hashchange',()=>{try{route()}catch(error){notice(error.message,true)}});document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();if(event.key==='/'&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){event.preventDefault();location.hash='explore';setTimeout(()=>$('stockSearch').focus(),0)}});
 function volatilityExport(rows,name){download(['Ticker','Company','Exchange','Latest_price_USD','Daily_change_percent','Average_daily_move_percent','Market_cap_USD','30_day_low','30_day_high','Movement_lookback_calendar_days'],rows.map(s=>[s.symbol,s.name,exchangeLabel(s),s.price,s.change,s.average,s.marketCap,s.low30,s.high30,state.volFilters.lookbackDays]),name)}
 $('volatilityTopCsv').addEventListener('click',()=>volatilityExport(state.volatility.slice(0,25),'volatility-top-25.csv'));$('volatilityAllCsv').addEventListener('click',()=>volatilityExport(state.volatility,'volatility-all-matches.csv'));
-$('predictionCsv').addEventListener('click',()=>download(['Ticker','Company','Exchange','Predicted_open_to_close_percent','Target_session','Generated_at','After_open','Latest_price_USD','Market_cap_USD','Forecast_state'],state.predictions.map(s=>[s.symbol,s.name,exchangeLabel(s),s.available?s.forecast.estimatedPercent:null,s.forecast?.targetDate,s.forecast?.generatedAt||state.metadata?.generatedAt,s.forecast?.generatedAfterOpen||false,s.price,s.marketCap,s.available?'estimated':s.forecast?.state||'unavailable']),'stock-predictions.csv'));
+$('predictionCsv').addEventListener('click',()=>download(['Ticker','Company','Exchange','Predicted_open_to_close_percent','Latest_session_change_percent','Target_session','Generated_at','After_open','Latest_price_USD','Market_cap_USD','Forecast_state'],state.predictions.map(s=>[s.symbol,s.name,exchangeLabel(s),s.available?s.forecast.estimatedPercent:null,s.change,s.forecast?.targetDate,s.forecast?.generatedAt||state.metadata?.generatedAt,s.forecast?.generatedAfterOpen||false,s.price,s.marketCap,s.available?'estimated':s.forecast?.state||'unavailable']),'stock-predictions.csv'));
 $('testingCsv').addEventListener('click',()=>download(['Date','Ticker','Company','Exchange','Record_type','Prediction_percent','Actual_percent','Absolute_error_points','Direction_correct','Generated_at','Model_version'],state.testView.rows.map(r=>[$('testDay').value,r.stock.symbol,r.stock.name,exchangeLabel(r.stock),$('testVariant').value,r.prediction?.percent,r.actual?.percent,r.error,r.directionCorrect,r.prediction?.generatedAt,r.prediction?.modelVersion]),'testing-'+$('testDay').value+'-'+$('testVariant').value+'.csv'));
 route();if(['127.0.0.1','localhost'].includes(location.hostname))$('localLabel').hidden=false;
 async function fetchJSON(file){const response=await fetch(file,{cache:'no-store'});if(!response.ok)throw Error(file+' is unavailable (HTTP '+response.status+')');return response.json();}

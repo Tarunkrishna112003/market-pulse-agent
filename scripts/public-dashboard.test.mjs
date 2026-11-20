@@ -162,3 +162,8 @@ test('the predictions heading shows the saved generation time in Pacific time',(
  assert.equal(predictionSessionLabel(forecasts,'2026-11-20T13:00:00Z'),'Predicted for 19 Nov at 5:46 AM Pacific');
  assert.equal(predictionSessionLabel([{available:true,forecast:{targetDate:'2026-07-08'}}],'2026-07-08T12:05:00Z'),'Predicted for 8 Jul at 5:05 AM Pacific');
 });
+
+test('the prediction table places latest session change beside the forecast',async()=>{
+ const html=await readFile('github-pages/index.html','utf8');
+ assert.match(html,/<th>Predicted open → close<\/th><th>Latest session change<\/th>/);
+});
