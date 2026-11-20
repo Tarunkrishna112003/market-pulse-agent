@@ -156,3 +156,9 @@ test('the predictions heading shows saved session dates once and omits unavailab
  assert.equal(predictionSessionLabel([...rows,{available:true,forecast:{targetDate:'2026-11-20'}}]),'Predicted for 19 Nov and 20 Nov');
  assert.equal(predictionSessionLabel([{available:false}]),'');
 });
+
+test('the predictions heading shows the saved generation time in Pacific time',()=>{
+ const forecasts=[{available:true,forecast:{targetDate:'2026-11-19',generatedAt:'2026-11-19T13:46:00Z'}}];
+ assert.equal(predictionSessionLabel(forecasts,'2026-11-20T13:00:00Z'),'Predicted for 19 Nov at 5:46 AM Pacific');
+ assert.equal(predictionSessionLabel([{available:true,forecast:{targetDate:'2026-07-08'}}],'2026-07-08T12:05:00Z'),'Predicted for 8 Jul at 5:05 AM Pacific');
+});

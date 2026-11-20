@@ -53,13 +53,13 @@ function renderPredictions(){
  const rows=state.predictions,target=$('predictionRows');target.replaceChildren();
  for(const stock of rows.slice(0,state.predShown)){
   const tr=el('tr'),f=stock.forecast,pred=cell();
-  if(stock.available){append(pred,el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));if(stock.completed)pred.append(el('span','Completed session · saved forecast','after-open-badge'));pred.append(el('small',time(f.generatedAt||state.metadata?.generatedAt)));}
+  if(stock.available)pred.append(el('span',fmt.pct(f.estimatedPercent),'prediction-number '+(f.estimatedPercent>=0?'positive':'negative')));
   else{pred.append(el('span',f?.state==='estimated'?'Forecast expired':'Unavailable','unavailable-label'));pred.title=f?.reason||'No usable forecast for the current or next session.';}
   append(tr,append(cell(),companyCell(stock,'predictions')),cell(fmt.money(stock.price)),pred,cell(stock.average.toFixed(2)+'%'),cell(fmt.cap(stock.marketCap)));target.append(tr);
  }
  if(!rows.length)emptyRow(target,5,'No saved forecasts match these ranges. Widen the filters or turn off “Saved forecasts only” to see stocks without a forecast.');
- const session=$('predictionSession');session.textContent=predictionSessionLabel(rows);session.hidden=!session.textContent;
- $('predictionCount').textContent=fmt.number(rows.length);$('predictionSummary').textContent=`Sorted by absolute forecast move · ${state.metadata?.modelVersion||'Model information unavailable'}`;
+ const session=$('predictionSession');session.textContent=predictionSessionLabel(rows,state.metadata?.generatedAt);session.hidden=!session.textContent;
+ $('predictionCount').textContent=fmt.number(rows.length);
  $('predictionPageInfo').textContent=`Showing ${Math.min(state.predShown,rows.length)} of ${fmt.number(rows.length)} matching stocks`;$('predictionMore').hidden=state.predShown>=rows.length;$('predictionCsv').disabled=!rows.length;renderStats('predictions');
 }
 function renderSectionSearch(section){

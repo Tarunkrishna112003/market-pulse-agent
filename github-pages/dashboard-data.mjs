@@ -44,10 +44,18 @@ export function predictionRows(data,forecasts,options,now=new Date()){
 
 const sessionDateFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
 const sessionDateList=new Intl.ListFormat('en-GB',{type:'conjunction'});
-export function predictionSessionLabel(rows){
- const dates=[...new Set(rows.filter(row=>row.available).map(row=>row.forecast.targetDate))].sort();
+const predictionTimeFormat=new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'America/Los_Angeles'});
+export function predictionSessionLabel(rows,fallbackGeneratedAt){
+ const forecasts=rows.filter(row=>row.available).map(row=>row.forecast);
+ const dates=[...new Set(forecasts.map(forecast=>forecast.targetDate))].sort();
  const labels=dates.filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date))).map(date=>sessionDateFormat.format(new Date(date)));
- return labels.length?'Predicted for '+sessionDateList.format(labels):'';
+ if(!labels.length)return '';
+ const title='Predicted for '+sessionDateList.format(labels);
+ const times=forecasts.map(forecast=>Date.parse(forecast.generatedAt||fallbackGeneratedAt)).filter(Number.isFinite);
+ if(!times.length)return title;
+ const start=Math.min(...times),end=Math.max(...times);
+ if(start===end)return title+' at '+predictionTimeFormat.format(start)+' Pacific';
+ return title+' · Generated '+predictionTimeFormat.formatRange(start,end)+' Pacific';
 }
 
 export function searchStocks(stocks,query='',mode='all',watchlist=new Set()){
