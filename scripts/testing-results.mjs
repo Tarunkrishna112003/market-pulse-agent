@@ -14,7 +14,8 @@ state.stocks=state.stocks.map(stock=>({...stock,exchange:exchanges.get(stock.sym
 const [metadata,forecasts]=await Promise.all([current('predictions.json'),current('predictions/365.json')]);
 if(metadata.reportId!==forecasts.reportId)throw Error('Published forecast changed during download; preserving previous test');
 const prices=[],errors=[];let index=0;
-if(state.entries.some(entry=>!entry.actual&&sessionExpired(entry.date,now)))await Promise.all(Array.from({length:3},async()=>{while(index<state.stocks.length){const stock=state.stocks[index++];try{prices.push(await trainingPrices(stock.symbol,{now,dailyOnly:true,historyDays:14}))}catch(error){errors.push({symbol:stock.symbol,error:error.message})}}}));
+const rangeStart=new Date(now.getTime()-13*86400000).toISOString().slice(0,10);
+if(state.entries.some(entry=>sessionExpired(entry.date,now)&&(!entry.actual||entry.date>=rangeStart&&entry.prediction?.percent&&!entry.actual.range)))await Promise.all(Array.from({length:3},async()=>{while(index<state.stocks.length){const stock=state.stocks[index++];try{prices.push(await trainingPrices(stock.symbol,{now,dailyOnly:true,historyDays:14}))}catch(error){errors.push({symbol:stock.symbol,error:error.message})}}}));
 const history=await current('prediction-history.json');
 const recovered=restoreSavedPredictions(state,history,now,MODEL_SELECTION);
 const migrated=useFrozenOctober20(recovered,await readFile(new URL('../data/frozen-forecasts/2026-10-20.json',import.meta.url),'utf8'),now);

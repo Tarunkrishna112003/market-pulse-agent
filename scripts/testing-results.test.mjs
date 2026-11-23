@@ -134,3 +134,13 @@ test('November tests recover original morning and after-open records without inv
  assert.equal(scoredRow.directionCorrect,false);assert.equal(scoredRow.lateForecasts[0].directionCorrect,true);
  assert.deepEqual(restoreSavedPredictions(scored,history,now),scored);
 });
+
+test('regular-session ranges backfill without altering the frozen forecast or recorded close',()=>{
+ const date='2026-10-19';
+ let state=updateTest(createTest(cohort),snapshot(1),[],new Date('2026-10-19T12:05:00Z'));
+ const now=new Date('2026-10-19T21:00:00Z');
+ state=updateTest(state,snapshot(9),[{symbol:'S0',daily:[{date,open:100,close:99}]}],now);
+ const enriched=updateTest(state,snapshot(9),[{symbol:'S0',daily:[{date,open:100,close:98,high:101,low:97}]}],now);
+ assert.deepEqual(enriched.entries[0].actual,{...state.entries[0].actual,range:{open:100,high:101,low:97}});
+ assert.deepEqual(enriched.entries[0].prediction,state.entries[0].prediction);
+});

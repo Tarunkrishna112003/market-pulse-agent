@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=testing-target-2';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=testing-target-3';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);

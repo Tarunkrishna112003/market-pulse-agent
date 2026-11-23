@@ -87,7 +87,7 @@ export function historyView(stock,report,days){
 }
 
 function reachedForecastTarget(percent,bar){
- const open=bar?.[5],extreme=percent>0?bar?.[4]:bar?.[3];
+ const open=bar?.open,extreme=percent>0?bar?.high:bar?.low;
  if(!Number.isFinite(percent)||percent===0||!Number.isFinite(open)||open<=0||!Number.isFinite(extreme)||extreme<=0)return null;
  const move=(extreme/open-1)*100,tolerance=1e-9;
  return percent>0?move>=percent-tolerance:move<=percent+tolerance;
@@ -101,7 +101,8 @@ export function testDayView(data,date,variant='morning',stocksBySymbol,now=new D
   const prediction=variant==='late'?late:entry?.prediction,actual=entry?.actual;
   const compared=Number.isFinite(prediction?.percent)&&Number.isFinite(actual?.percent);
   const bar=closed&&Number.isFinite(prediction?.percent)?stocksBySymbol.get(stock.symbol)?.history?.find(day=>day[0]===date):null;
-  const targetReached=reachedForecastTarget(prediction?.percent,bar);
+  const priceRange=closed&&(actual?.range||(bar&&{open:bar[5],high:bar[4],low:bar[3]}));
+  const targetReached=reachedForecastTarget(prediction?.percent,priceRange);
   return {stock,entry,prediction,actual,compared,targetReached,error:compared?Math.abs(prediction.percent-actual.percent):null,
    directionCorrect:compared?Math.sign(prediction.percent)===Math.sign(actual.percent):null};
  });
