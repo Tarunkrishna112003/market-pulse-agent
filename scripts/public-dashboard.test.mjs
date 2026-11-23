@@ -206,8 +206,11 @@ test('cohort result checks the session high or low against the forecast threshol
  ];
  const data={stocks:cases.map(([symbol])=>({symbol})),entries:cases.map(([symbol,percent,close])=>({symbol,date,prediction:percent===null?null:{percent},actual:{percent:close-100}}))};
  const stocks=new Map(cases.map(([symbol,,close,low,high])=>[symbol,{history:[[date,close,0,low,high,100]]}]));
+ data.entries.find(entry=>entry.symbol==='DOWN_HIT').actual=null;
  const view=testDayView(data,date,'morning',stocks,new Date('2026-11-19T22:00:00Z'));
  assert.deepEqual(view.rows.map(row=>row.targetReached),cases.map(row=>row[5]));
  assert.equal(view.rows[0].directionCorrect,false);
+ assert.equal(view.targetsReached,2);
+ assert.equal(view.targetsChecked,4);
  assert.equal(testDayView(data,date,'morning',stocks,new Date('2026-11-19T18:00:00Z')).rows[0].targetReached,null);
 });

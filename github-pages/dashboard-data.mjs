@@ -100,14 +100,16 @@ export function testDayView(data,date,variant='morning',stocksBySymbol,now=new D
   const entry=entries.get(stock.symbol);const late=[...(entry?.lateForecasts||[])].sort((a,b)=>String(a.generatedAt).localeCompare(String(b.generatedAt))).at(-1);
   const prediction=variant==='late'?late:entry?.prediction,actual=entry?.actual;
   const compared=Number.isFinite(prediction?.percent)&&Number.isFinite(actual?.percent);
-  const bar=closed&&compared?stocksBySymbol.get(stock.symbol)?.history?.find(day=>day[0]===date):null;
+  const bar=closed&&Number.isFinite(prediction?.percent)?stocksBySymbol.get(stock.symbol)?.history?.find(day=>day[0]===date):null;
   const targetReached=reachedForecastTarget(prediction?.percent,bar);
   return {stock,entry,prediction,actual,compared,targetReached,error:compared?Math.abs(prediction.percent-actual.percent):null,
    directionCorrect:compared?Math.sign(prediction.percent)===Math.sign(actual.percent):null};
  });
  const scored=rows.filter(r=>r.compared);
+ const targetResults=rows.filter(r=>r.targetReached!==null);
  return {rows,total:rows.length,predicted:rows.filter(r=>Number.isFinite(r.prediction?.percent)).length,
   compared:scored.length,correct:scored.filter(r=>r.directionCorrect).length,
+  targetsReached:targetResults.filter(r=>r.targetReached).length,targetsChecked:targetResults.length,
   mae:scored.length?scored.reduce((sum,r)=>sum+r.error,0)/scored.length:null};
 }
 
