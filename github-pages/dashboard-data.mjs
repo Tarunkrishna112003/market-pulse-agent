@@ -86,13 +86,23 @@ export function historyView(stock,report,days){
   baselineDate:baseline?.date,firstDate:first?.date,lastDate:last?.date};
 }
 
-export function testDayView(data,date,variant='morning'){
+function reachedForecastTarget(percent,bar){
+ const open=bar?.[5],extreme=percent>0?bar?.[4]:bar?.[3];
+ if(!Number.isFinite(percent)||percent===0||!Number.isFinite(open)||open<=0||!Number.isFinite(extreme)||extreme<=0)return null;
+ const move=(extreme/open-1)*100,tolerance=1e-9;
+ return percent>0?move>=percent-tolerance:move<=percent+tolerance;
+}
+
+export function testDayView(data,date,variant='morning',stocksBySymbol,now=new Date()){
+ const closed=stocksBySymbol&&sessionExpired(date,now);
  const entries=new Map(data.entries.filter(e=>e.date===date).map(e=>[e.symbol,e]));
  const rows=data.stocks.map(stock=>{
   const entry=entries.get(stock.symbol);const late=[...(entry?.lateForecasts||[])].sort((a,b)=>String(a.generatedAt).localeCompare(String(b.generatedAt))).at(-1);
   const prediction=variant==='late'?late:entry?.prediction,actual=entry?.actual;
   const compared=Number.isFinite(prediction?.percent)&&Number.isFinite(actual?.percent);
-  return {stock,entry,prediction,actual,compared,error:compared?Math.abs(prediction.percent-actual.percent):null,
+  const bar=closed&&compared?stocksBySymbol.get(stock.symbol)?.history?.find(day=>day[0]===date):null;
+  const targetReached=reachedForecastTarget(prediction?.percent,bar);
+  return {stock,entry,prediction,actual,compared,targetReached,error:compared?Math.abs(prediction.percent-actual.percent):null,
    directionCorrect:compared?Math.sign(prediction.percent)===Math.sign(actual.percent):null};
  });
  const scored=rows.filter(r=>r.compared);

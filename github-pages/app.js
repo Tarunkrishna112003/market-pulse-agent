@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-accuracy-3';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=testing-target-1';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
@@ -161,13 +161,13 @@ document.addEventListener('click',event=>{if(!$('testCalendar').contains(event.t
 $('testCalendar').addEventListener('keydown',event=>{if(event.key==='Escape'){$('testCalendar').open=false;$('testCalendarLabel').focus()}});
 function renderTesting(){
  if(!state.testing){$('testingStatus').textContent='Saved testing data could not be loaded. Reload the preview after refreshing its published snapshots.';return;}
- const day=$('testDay').value,variant=$('testVariant').value,view=testDayView(state.testing,day,variant);state.testView=view;
+ const day=$('testDay').value,variant=$('testVariant').value,view=testDayView(state.testing,day,variant,state.stockMap);state.testView=view;
  $('testingCohort').textContent=`All ${state.testing.stocks.length} original stocks · ${state.testing.dates[0]} to ${state.testing.dates.at(-1)} · cohort from ${state.testing.cohortSession}`;
  $('testingExplanation').textContent=variant==='late'?'After-open updates predict the full day’s open-to-close move, not the remaining intraday move. They are excluded from the morning-test results.':'Morning forecasts are frozen before 6:00 AM Pacific. Later updates cannot replace them. A missed cutoff means no eligible morning forecast was recorded.';
  const stats=$('testingStats');stats.replaceChildren();for(const [label,value] of [['Cohort stocks',String(view.total)],['Compared with actual',`${view.compared}/${view.total}`],['Correct direction',view.compared?`${view.correct}/${view.compared}`:'—'],['Average error',view.mae==null?'—':view.mae.toFixed(2)+' pts']])append(stats,append(el('div',null,'testing-stat'),el('span',label),el('strong',value)));
  const target=$('testRows');target.replaceChildren();
  for(const row of view.rows){const tr=el('tr'),pred=cell();pred.append(el('span',fmt.pct(row.prediction?.percent),row.prediction?.percent>=0?'positive':'negative'));if(row.prediction)pred.append(el('small',time(row.prediction.generatedAt||row.prediction.observedAt)),el('small',row.prediction.modelVersion||'Original model'));
-  let status,cls='pending';if(row.compared){status=row.directionCorrect?'Correct direction':'Wrong direction';cls=row.directionCorrect?'':'wrong'}else if(variant==='late')status=row.prediction?'Awaiting actual move':'No after-open update';else if(row.entry?.status==='missed-cutoff')status='Missed 6 AM cutoff';else if(row.prediction)status=row.entry?.status==='awaiting-price'?'Awaiting closing data':'Awaiting market close';else status=row.entry?.status==='pending'?'Awaiting morning forecast':'No saved record';
+  let status,cls='pending';if(row.compared){status=row.targetReached===null?(row.prediction.percent===0?'No directional target':'Price range unavailable'):row.targetReached?'Reached':'Not reached';cls=row.targetReached===false?'wrong':row.targetReached===null?'pending':''}else if(variant==='late')status=row.prediction?'Awaiting actual move':'No after-open update';else if(row.entry?.status==='missed-cutoff')status='Missed 6 AM cutoff';else if(row.prediction)status=row.entry?.status==='awaiting-price'?'Awaiting closing data':'Awaiting market close';else status=row.entry?.status==='pending'?'Awaiting morning forecast':'No saved record';
   append(tr,append(cell(),companyCell(row.stock,'testing')),pred,cell(fmt.pct(row.actual?.percent),row.actual?.percent>=0?'positive':'negative'),cell(row.error==null?'—':row.error.toFixed(2)),append(cell(),el('span',status,'result-pill '+cls)));target.append(tr);
  }
  $('testingStatus').textContent=`${day} · ${variant==='late'?'Separate after-open comparison':'Frozen morning comparison'} · ${view.predicted} saved forecasts${state.testing.priceErrors?.length?' · Some closing-price downloads failed; missing results remain pending.':''}`;

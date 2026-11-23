@@ -192,3 +192,22 @@ test('directional accuracy is immediately beside the prediction column',async()=
  const html=await readFile('github-pages/index.html','utf8');
  assert.match(html,/<th>Predicted open → close<\/th><th>Directional accuracy<\/th>/);
 });
+
+test('cohort result checks the session high or low against the forecast threshold',()=>{
+ const date='2026-11-19';
+ const cases=[
+  ['UP_HIT',1,99,98,101,true],
+  ['UP_MISS',1,100.5,99,100.5,false],
+  ['DOWN_HIT',-1,101,99,102,true],
+  ['DOWN_MISS',-1,99.5,99.5,101,false],
+  ['MISSING_RANGE',1,101,99,null,null],
+  ['NO_FORECAST',null,101,99,102,null],
+  ['FLAT',0,100,99,101,null],
+ ];
+ const data={stocks:cases.map(([symbol])=>({symbol})),entries:cases.map(([symbol,percent,close])=>({symbol,date,prediction:percent===null?null:{percent},actual:{percent:close-100}}))};
+ const stocks=new Map(cases.map(([symbol,,close,low,high])=>[symbol,{history:[[date,close,0,low,high,100]]}]));
+ const view=testDayView(data,date,'morning',stocks,new Date('2026-11-19T22:00:00Z'));
+ assert.deepEqual(view.rows.map(row=>row.targetReached),cases.map(row=>row[5]));
+ assert.equal(view.rows[0].directionCorrect,false);
+ assert.equal(testDayView(data,date,'morning',stocks,new Date('2026-11-19T18:00:00Z')).rows[0].targetReached,null);
+});
