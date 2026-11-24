@@ -46,3 +46,12 @@ test('free company news sources disclose individual failures',async()=>{
 test('forecast target is an unstarted session and crosses market holidays',()=>{
  assert.equal(nextForecastSession(new Date('2026-10-12T12:00:00Z')),'2026-10-12');assert.equal(nextForecastSession(new Date('2026-10-12T13:30:00Z')),'2026-10-13');assert.equal(nextForecastSession(new Date('2026-07-02T15:00:00Z')),'2026-07-06');
 });
+
+test('ledger backfills session prices for an already-scored forecast without rewriting the actual return',()=>{
+ const previous=updateLedger([],[],[{symbol:'ALAB',forecasts:[forecast(365)]}],now);
+ const archive=[{symbol:'ALAB',predictionBaseline:[['2026-10-13',99,-1,98,101,100]],history:[]}];
+ const close=new Date('2026-10-13T21:00:00Z');
+ const saved={...previous[0],actualPercent:-1.01,evaluatedAt:'2026-10-13T20:05:00Z'};
+ assert.deepEqual(updateLedger([saved],archive,[],close)[0],{...saved,sessionPrices:{open:100,high:101,low:98,close:99}});
+ assert.deepEqual(updateLedger([saved],archive,[],new Date('2026-10-13T17:00:00Z'))[0],saved);
+});

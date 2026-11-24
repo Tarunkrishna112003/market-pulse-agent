@@ -123,17 +123,20 @@ export function csvText(headers,rows){
 const predictionClock=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'});
 function firstForecastPerSession(records,eligible){
  const daily=new Map();
- const actualByDate=new Map();
+ const actualByDate=new Map(),pricesByDate=new Map();
  for(const row of records){
   if(row.actual!==null&&!actualByDate.has(row.date))actualByDate.set(row.date,row.actual);
+  if(row.prices&&!pricesByDate.has(row.date))pricesByDate.set(row.date,row.prices);
   if(!Number.isFinite(row.percent)||!Number.isFinite(Date.parse(row.generatedAt))||!eligible(row))continue;
   const saved=daily.get(row.date);
   if(!saved||Date.parse(row.generatedAt)<Date.parse(saved.generatedAt))daily.set(row.date,row);
  }
  return [...daily.values()].map(row=>{
   const actual=actualByDate.get(row.date);
-  if(row.actual!==null||actual===undefined)return row;
-  return {...row,actual,error:Math.abs(row.percent-actual),directionCorrect:Math.sign(row.percent)===Math.sign(actual)};
+  const prices=row.prices||pricesByDate.get(row.date);
+  const saved=prices?{...row,prices}:row;
+  if(row.actual!==null||actual===undefined)return saved;
+  return {...saved,actual,error:Math.abs(row.percent-actual),directionCorrect:Math.sign(row.percent)===Math.sign(actual)};
  }).sort((a,b)=>b.date.localeCompare(a.date));
 }
 
@@ -161,10 +164,10 @@ export function stockPredictionView(symbol,forecasts,testing,ledger,now=new Date
   records.push({...row,actual,error:compared?Math.abs(row.percent-actual):null,directionCorrect:compared?Math.sign(row.percent)===Math.sign(actual):null});
  };
  for(const entry of testing?.entries||[])if(entry.symbol===symbol){
-  if(entry.prediction)add({date:entry.date,percent:entry.prediction.percent,actual:entry.actual?.percent,generatedAt:entry.prediction.generatedAt,modelVersion:entry.prediction.modelVersion,afterOpen:false,record:'Frozen morning test'});
+  if(entry.prediction)add({date:entry.date,percent:entry.prediction.percent,actual:entry.actual?.percent,prices:entry.actual?.range&&{...entry.actual.range,close:entry.actual.close},generatedAt:entry.prediction.generatedAt,modelVersion:entry.prediction.modelVersion,afterOpen:false,record:'Frozen morning test'});
   for(const late of entry.lateForecasts||[])add({date:entry.date,percent:late.percent,actual:entry.actual?.percent,generatedAt:late.generatedAt,modelVersion:late.modelVersion,afterOpen:true,record:'After-open update'});
  }
- for(const row of ledger?.records||[])if(row.symbol===symbol&&row.returnBasis==='open-to-close'&&row.lookback===365)add({date:row.targetDate,percent:row.estimatedPercent,reason:row.reason,actual:row.actualPercent,generatedAt:row.generatedAt,modelVersion:row.modelVersion,afterOpen:row.generatedAfterOpen===true,record:row.reason&&!Number.isFinite(row.estimatedPercent)?'No forecast · '+row.reason:row.generatedAfterOpen?'Published after-open forecast':'Saved forecast'});
+ for(const row of ledger?.records||[])if(row.symbol===symbol&&row.returnBasis==='open-to-close'&&row.lookback===365)add({date:row.targetDate,percent:row.estimatedPercent,reason:row.reason,actual:row.actualPercent,prices:row.sessionPrices,generatedAt:row.generatedAt,modelVersion:row.modelVersion,afterOpen:row.generatedAfterOpen===true,record:row.reason&&!Number.isFinite(row.estimatedPercent)?'No forecast · '+row.reason:row.generatedAfterOpen?'Published after-open forecast':'Saved forecast'});
  if(savedForecast(forecast))add({date:forecast.targetDate,percent:forecast.estimatedPercent,generatedAt:forecast.generatedAt,modelVersion:forecast.modelVersion,afterOpen:forecast.generatedAfterOpen===true,record:'Saved forecast'});
  const history=morningPredictionRecords(records);
  const eligible=firstForecastPerSession(records,row=>!row.afterOpen&&!afterOpenForecast(row,row.date));
@@ -185,4 +188,23 @@ export function createStockPredictionLookup(forecasts,testing,ledger){
  };
  const tests=bySymbol(testing?.entries),history=bySymbol(ledger?.records);
  return (symbol,now=new Date())=>stockPredictionView(symbol,forecasts,{entries:tests.get(symbol)},{records:history.get(symbol)},now);
+}
+
+export function stockForecastResults(records,stock,now=new Date()){
+ const pricesByDate=new Map([...(stock.predictionBaseline||[]),...(stock.history||[])].map(bar=>[
+  bar[0],{open:bar[5],high:bar[4],low:bar[3],close:bar[1]}
+ ]));
+ const validPrice=price=>Number.isFinite(price)&&price>0;
+ return records.map(row=>{
+  const closed=sessionExpired(row.date,now);
+  const prices=closed?(row.prices||pricesByDate.get(row.date)):undefined;
+  const trustworthy=prices&&[prices.open,prices.high,prices.low,prices.close].every(validPrice)
+   &&prices.low<=Math.min(prices.open,prices.close)&&prices.high>=Math.max(prices.open,prices.close);
+  const actual=Number.isFinite(row.actual)?row.actual:
+   validPrice(prices?.open)&&validPrice(prices?.close)?(prices.close/prices.open-1)*100:null;
+  const targetReached=trustworthy?reachedForecastTarget(row.percent,prices):null;
+  return {...row,prices,actual,closed,targetReached,
+   error:actual===null?null:Math.abs(row.percent-actual),
+   directionCorrect:actual===null?null:Math.sign(row.percent)===Math.sign(actual)};
+ });
 }

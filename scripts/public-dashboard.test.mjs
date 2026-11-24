@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(join(tmpdir(),'market-dashboard-data-'));
 for(const [source,name] of [['github-pages/dashboard-data.mjs','dashboard-data.mjs'],['github-pages/exchange.mjs','exchange.mjs'],['lib/filters.mjs','filters.mjs'],['lib/stock-history.mjs','stock-history.mjs'],['lib/trading-calendar.mjs','trading-calendar.mjs']])await copyFile(source,join(dir,name));
-const {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,createStockPredictionLookup,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
+const {parseRanges,movementRows,predictionRows,predictionSessionLabel,stockForecastResults,searchStocks,indexSearchResult,historyView,testDayView,csvText,stockPredictionView,createStockPredictionLookup,exchangeLabel,tickerLabel}=await import(pathToFileURL(join(dir,'dashboard-data.mjs')).href);
 after(()=>rm(dir,{recursive:true,force:true}));
 const report={id:'fixture',end:'2026-10-30',filters:{lookbackDays:365}};
 const stocks=[{symbol:'APP',name:'AppLovin Corporation',marketCap:30e9,price:110,change:2,history:[['2026-10-29',105,-4,103,108,104,1200],['2026-10-30',110,2,105,112,106,1500]]},
@@ -215,4 +215,21 @@ test('cohort result checks the session high or low against the forecast threshol
  assert.equal(view.targetsReached,2);
  assert.equal(view.targetsChecked,4);
  assert.equal(testDayView(data,date,'morning',stocks,new Date('2026-11-19T18:00:00Z')).rows[0].targetReached,null);
+});
+
+test('stock prediction history shows O/H/L/C and scores the full regular-session range',()=>{
+ const records=[
+  {date:'2026-11-18',percent:1,actual:-1},
+  {date:'2026-11-19',percent:-1,actual:null,prices:{open:100,high:102,low:99.5,close:101}},
+  {date:'2026-11-20',percent:1,actual:null},
+  {date:'2026-11-23',percent:-1,actual:null},
+ ];
+ const stock={history:[['2026-11-18',99,0,98,101,100],['2026-11-20',100,0,98,99,100],['2026-11-23',99,0,98,101,100]]};
+ const results=stockForecastResults(records,stock,new Date('2026-11-23T18:00:00Z'));
+ assert.deepEqual(results[0].prices,{open:100,high:101,low:98,close:99});
+ assert.deepEqual(results.map(r=>r.targetReached),[true,false,null,null]);
+ assert.deepEqual(results.map(r=>r.closed),[true,true,true,false]);
+ assert.equal(results[0].actual,-1);
+ assert.ok(Math.abs(results[1].actual-1)<1e-9);
+ assert.equal(results[3].prices,undefined);
 });

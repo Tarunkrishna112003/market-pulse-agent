@@ -1,4 +1,4 @@
-import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=testing-target-3';
+import {parseRanges,movementRows,predictionRows,predictionSessionLabel,searchStocks,indexSearchResult,historyView,testDayView,stockForecastResults,savedForecast,csvText,createStockPredictionLookup,exchangeLabel,tickerLabel} from './dashboard-data.mjs?v=stock-targets-1';
 import {sparkline,priceChart} from './dashboard-chart.mjs';
 
 const $=id=>document.getElementById(id);
@@ -90,10 +90,23 @@ function renderStockForecasts(stock,target){
  cards.append(accuracy);
  if(view.latestAttempt){const missing=el('div',null,'stock-forecast-card');append(missing,el('span','Latest forecast attempt · '+(view.latestAttempt.targetDate||'Session unavailable'),'summary-label'),el('strong','Unavailable'),el('p',view.latestAttempt.reason||'No usable forecast was generated for this stock.'));cards.append(missing)}
  if(view.current){const current=el('div',null,'stock-forecast-card');append(current,el('span',(view.currentClosed?'Today’s completed session · ':'Current session · ')+view.current.targetDate,'summary-label'),el('strong',fmt.pct(view.current.estimatedPercent),view.current.estimatedPercent>=0?'positive':'negative'),el('p','Generated '+time(view.current.generatedAt||state.metadata?.generatedAt)+(view.current.generatedAfterOpen?' · After-open update':'')));cards.append(current)}
- box.append(cards);append(box,append(el('div',null,'surface-heading'),append(el('div'),el('h3','Previous predictions'),el('p','One prediction per trading day from the 5 AM Pacific scan. Later updates are excluded. Error is in percentage points.'))));
- const wrap=el('div',null,'table-wrap'),table=el('table'),head=el('thead'),hr=el('tr');for(const title of ['Trading day','Forecast record','Predicted change','Actual change','Error · pts','Direction','Generated / model'])hr.append(el('th',title));head.append(hr);table.append(head);const body=el('tbody');body.id='stockPredictionHistory';
- for(const row of view.records){const tr=el('tr'),metadata=cell();append(metadata,el('span',time(row.generatedAt)),el('small',row.modelVersion||'Model unavailable'));append(tr,cell(row.date),cell(row.record),cell(fmt.pct(row.percent),row.percent>=0?'positive':'negative'),cell(fmt.pct(row.actual),row.actual>=0?'positive':'negative'),cell(row.error===null?'—':row.error.toFixed(2)),cell(row.directionCorrect===null?'Pending actual':row.directionCorrect?'Correct':'Wrong',row.directionCorrect===null?'':row.directionCorrect?'positive':'negative'),metadata);body.append(tr)}
- if(!view.records.length)emptyRow(body,7,'No saved previous predictions for this stock. Select Daily price to see recorded prices.');table.append(body);wrap.append(table);box.append(wrap);
+ box.append(cards);append(box,append(el('div',null,'surface-heading'),append(el('div'),el('h3','Previous predictions'),el('p','One saved forecast per session. Result uses the regular-session high for positive targets and the low for negative targets. Actual change uses the close.'))));
+ const history=stockForecastResults(view.records,stock);
+ const wrap=el('div',null,'table-wrap'),table=el('table'),head=el('thead'),hr=el('tr');
+ for(const title of ['Trading day','Forecast record','Predicted change','Open','High','Low','Close','Actual change','Error · pts','Direction','Result'])hr.append(el('th',title));
+ head.append(hr);table.append(head);const body=el('tbody');body.id='stockPredictionHistory';
+ for(const row of history){
+  const tr=el('tr');
+  const status=row.targetReached===true?'Reached':row.targetReached===false?'Not reached':!row.closed?'Awaiting close':row.percent===0?'No directional target':'Price range unavailable';
+  const prices=['open','high','low','close'].map(key=>cell(fmt.money(row.prices?.[key])));
+  append(tr,cell(row.date),cell(row.record),cell(fmt.pct(row.percent),row.percent>=0?'positive':'negative'),...prices,
+   cell(fmt.pct(row.actual),row.actual>=0?'positive':'negative'),cell(row.error===null?'—':row.error.toFixed(2)),
+   cell(row.directionCorrect===null?'Pending actual':row.directionCorrect?'Correct':'Wrong',row.directionCorrect===null?'':row.directionCorrect?'positive':'negative'),
+   append(cell(),el('span',status,'result-pill '+(row.targetReached===false?'wrong':row.targetReached===null?'pending':''))));
+  body.append(tr);
+ }
+ if(!history.length)emptyRow(body,11,'No saved previous predictions for this stock. Select Daily price to see recorded prices.');
+ table.append(body);wrap.append(table);box.append(wrap);
  box.append(el('p',`${view.records.length} saved records. ${state.ledger?'':'Published prediction history could not be loaded; only available testing records are shown. '}${state.testing?'':'Testing records could not be loaded. '}Missing actual moves stay pending. These records may use different model versions.`,'field-note'));target.append(box);
 }
 function toggleWatch(symbol){if(state.watchlist.has(symbol))state.watchlist.delete(symbol);else state.watchlist.add(symbol);try{localStorage.setItem('market-pulse-watchlist',JSON.stringify([...state.watchlist]))}catch{}route();}

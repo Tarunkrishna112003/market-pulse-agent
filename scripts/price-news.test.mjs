@@ -54,3 +54,24 @@ test('missing Yahoo Finance RSS falls back to Yahoo general top stories',async()
  const report={};await attachMarketNews(report,{now});assert.equal(report.marketNews.state,'available');assert.equal(report.marketNews.source,'Yahoo News');assert.equal(calls[1],'https://news.yahoo.com/rss/topstories');assert.equal(report.marketNews.errors[0].error,'Yahoo news HTTP 404');
  }finally{globalThis.fetch=original}
 });
+
+test('current-session price requests use the scan time and wait for the completed daily bar',async()=>{
+ const original=globalThis.fetch,requests=[];
+ try{
+  globalThis.fetch=async url=>{
+   requests.push(Number(new URL(url).searchParams.get('period2')));
+   return {ok:true,json:async()=>({chart:{result:[{
+    meta:{instrumentType:'EQUITY',exchangeName:'NYQ'},
+    timestamp:['2026-11-19','2026-11-20','2026-11-23'].map(d=>Date.parse(d+'T14:30:00Z')/1000),
+    indicators:{quote:[{open:[98,99,100],high:[101,103,104],low:[97,98,99],close:[99,101,103]}]}
+   }]}})};
+  };
+  const stock={symbol:'TEST',exchangeShortName:'NYSE'},window={baseline:'2026-11-19',start:'2026-11-20',end:'2026-11-23'};
+  const midday=new Date('2026-11-23T19:00:00Z'),evening=new Date('2026-11-24T01:00:00Z');
+  const early=await publicStock(stock,window,{now:midday}),late=await publicStock(stock,window,{now:evening});
+  assert.deepEqual(requests,[midday.getTime()/1000,evening.getTime()/1000]);
+  assert.equal(early.days.at(-1).date,'2026-11-20');
+  const {open,high,low,close}=late.days.at(-1);
+  assert.deepEqual({open,high,low,close},{open:100,high:104,low:99,close:103});
+ }finally{globalThis.fetch=original}
+});
